@@ -203,6 +203,7 @@ label.f small{font-weight:400;color:var(--muted)}
 "use strict";
 const CFG = window.APP_CONFIG;
 const PER_TABLE = CFG.seatsPerTable || 12;
+const APP_VERSION = "10.13-c";
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const store = { get(k){ try { return localStorage.getItem(k); } catch { return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch {} } };
@@ -383,8 +384,13 @@ const S = { api:null, view:"list", id:null, meetups:[], meetup:undefined, entrie
 const isPast = m => Date.now() >= m.deadline;
 const ended = m => Date.now() > m.date + 12*3600e3;
 
-function toast(msg){ const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t); setTimeout(()=>t.remove(), 2400); }
-function errMsg(e){ const c = e && (e.code || ""); if (String(c).includes("permission")) return "권한이 없어요 (마감됐거나 본인 것이 아님)"; return e?.message || "잠시 후 다시 시도해 주세요"; }
+function toast(msg, ms){ const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t); setTimeout(()=>t.remove(), ms || 2400); }
+function errMsg(e){
+  const c = String((e && e.code) || ""), step = e && e.step ? `${e.step} 실패 · ` : "";
+  if (c.includes("permission")) return `${step}권한이 없어요 [${c}]`;
+  return `${step}${e?.message || "잠시 후 다시 시도해 주세요"}${c ? ` [${c}]` : ""}`;
+}
+const tag = (step, p) => p.catch(e => { try { e.step = step; } catch {} throw e; });
 
 /* ---------- 라우팅 ---------- */
 function route(){
@@ -432,7 +438,7 @@ function statusPill(m, mine){
 
 function renderList(){
   const fab = `<button class="btn primary fab" data-act="new">＋ 모임 만들기</button>`;
-  if (!S.meetups.length) return `<div class="empty"><div class="big">♠♥♣♦</div><p>아직 올라온 모임이 없어요.<br>오른쪽 아래 <b>모임 만들기</b>로 첫 모임을 열어보세요.</p></div>${fab}`;
+  if (!S.meetups.length) return `<div class="empty"><div class="big">♠♥♣♦</div><p>아직 올라온 모임이 없어요.<br>오른쪽 아래 <b>모임 만들기</b>로 첫 모임을 열어보세요.</p></div><p class="muted" style="font-size:11px;text-align:center;margin-top:28px">버전 ${APP_VERSION}</p>${fab}`;
   const up = S.meetups.filter(m=>!ended(m)), old = S.meetups.filter(ended).slice(0,10);
   const card = m => {
     const cnt = m._count;
@@ -444,7 +450,7 @@ function renderList(){
   };
   return `<h2 class="sec">다가오는 모임 <span class="n">${up.length}</span></h2><div class="list">${up.map(card).join("") || `<div class="empty">예정된 모임이 없어요.</div>`}</div>
     ${old.length ? `<h2 class="sec">지난 모임</h2><div class="list">${old.map(card).join("")}</div>` : ""}
-    ${fab}`;
+    <p class="muted" style="font-size:11px;text-align:center;margin-top:28px">버전 ${APP_VERSION}</p>${fab}`;
 }
 
 function renderNew(){
@@ -595,7 +601,7 @@ function askName(then){
 const needName = fn => S.name ? fn() : askName(fn);
 
 /* ---------- 이벤트 ---------- */
-async function run(fn, ok){ if (S.busy) return; S.busy = true; render(); try { await fn(); if (ok) toast(ok); } catch(e){ console.error(e); toast(errMsg(e)); } finally { S.busy = false; render(); } }
+async function run(fn, ok){ if (S.busy) return; S.busy = true; render(); try { await fn(); if (ok) toast(ok); } catch(e){ console.error(e); toast(errMsg(e), 7000); } finally { S.busy = false; render(); } }
 
 document.addEventListener("click", e => {
   const g = e.target.closest("[data-go]"); if (g){ go("?m=" + encodeURIComponent(g.dataset.go)); return; }
@@ -638,8 +644,8 @@ document.addEventListener("submit", e => {
   const joinToo = $("#f-join").checked;
   if (!S.api.demo && S.api.pushSupported() && Notification.permission === "default") S.api.enablePush().catch(()=>{});
   needName(()=>run(async () => {
-    const id = await S.api.createMeetup({ title: v("#f-title"), location: v("#f-loc"), memo: $("#f-memo").value.trim(), capacity, minPlayers, date, deadline, hostName: S.name });
-    if (joinToo) await S.api.join(id, S.name, "");
+    const id = await tag("모임 저장", S.api.createMeetup({ title: v("#f-title"), location: v("#f-loc"), memo: $("#f-memo").value.trim(), capacity, minPlayers, date, deadline, hostName: S.name }));
+    if (joinToo) await tag("모임장 참여 신청", S.api.join(id, S.name, ""));
     history.replaceState(null, "", "?m=" + encodeURIComponent(id)); route();
   }, "모임을 올렸어요"));
 });
