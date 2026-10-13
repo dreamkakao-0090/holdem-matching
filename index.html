@@ -151,7 +151,9 @@ label.f small{font-weight:400;color:var(--muted)}
 .seat .c{width:32px;height:32px;border-radius:50%;background:var(--surface);border:3px dashed var(--chip);display:grid;place-items:center;
   font-family:var(--f-mono);font-weight:600;font-size:13px;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .seat.me .c{background:var(--chip);color:#3a2a05;border-style:solid;border-color:var(--red)}
-.seat .l{font-size:11px;line-height:1.2;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.seat.dl .c{background:var(--ink);color:var(--bg);border-style:solid;border-color:var(--ink)}
+.seat.dl.me .c{border-color:var(--red)}
+.seat .l{background:var(--surface);border-radius:4px;padding:0 3px;font-size:11px;line-height:1.2;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
 .dealer{position:absolute;left:50%;top:6%;transform:translate(-50%,-50%);background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:10.5px;padding:1px 6px;color:var(--muted)}
 .seatlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px}
 .seatlist div{display:flex;gap:8px;align-items:center;background:var(--surface-2);border-radius:8px;padding:6px 10px;min-width:0;font-size:14px}
@@ -204,7 +206,7 @@ label.f small{font-weight:400;color:var(--muted)}
 "use strict";
 const CFG = window.APP_CONFIG;
 const PER_TABLE = CFG.seatsPerTable || 12;
-const APP_VERSION = "10.13-d";
+const APP_VERSION = "10.13-e";
 const UA = navigator.userAgent;
 const IS_IOS = /iPhone|iPad|iPod/.test(UA);
 const IN_APP = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER\(inapp|Line\//i.test(UA);
@@ -236,7 +238,7 @@ function drawSeating(confirmed, by){
   for (let k=0;k<t;k++){
     const size = Math.floor(n/t) + (k < n % t ? 1 : 0);
     tables.push({ table: k+1, seats: [] });
-    for (let s=1;s<=size;s++) cards.push({ table: k+1, seat: s });
+    for (let s=0;s<size;s++) cards.push({ table: k+1, seat: s });   // 0 = 딜러 자리
   }
   const steps = confirmed.map((p, i) => {
     const c = cards.splice(rand(cards.length), 1)[0];
@@ -247,6 +249,8 @@ function drawSeating(confirmed, by){
   return { seats: { assignedAt: at, tables: n ? tables : [] }, log: { drawnAt: at, byUid: by.uid, byName: by.name, byHost: !!by.host, multi: t > 1, steps } };
 }
 const minOf = m => m.minPlayers || CFG.defaultMinPlayers || 6;
+const isFormed = m => (m.formed !== undefined && m.formed !== null) ? !!m.formed : !!m.formedAt;
+const seatName = n => n === 0 ? "딜러" : `${n}번`;
 
 /* ---------- 체험 모드 저장소 (이 기기 전용) ---------- */
 function demoStore(){
@@ -273,6 +277,7 @@ function demoStore(){
   const on = f => { subs.add(f); setTimeout(f); return () => subs.delete(f); };
   const err = msg => Promise.reject(new Error(msg));
   const meName = () => S.name || "나";
+  function checkBreak(m, id){ if (isFormed(m) && Object.keys(db.entries[id]).length < minOf(m)){ m.formed = false; m.brokenAt = Date.now(); } }
   function seat(id, by){ const m = db.meetups[id]; const r = drawSeating(splitEntries(m, Object.values(db.entries[id])).confirmed, by); m.seats = r.seats; db.draws[id] = r.log; save(); }
   return {
     demo: true, uid,
@@ -285,11 +290,11 @@ function demoStore(){
     async join(id, name, memo){
       const m = db.meetups[id]; if (Date.now() >= m.deadline) return err("모집이 마감됐어요");
       db.entries[id][uid] = { uid, name, memo, createdAt: Date.now() };
-      if (!m.formedAt && Object.keys(db.entries[id]).length >= minOf(m)) m.formedAt = Date.now();
+      if (!isFormed(m) && Object.keys(db.entries[id]).length >= minOf(m)){ m.formed = true; m.formedAt = Date.now(); }
       save();
     },
-    async cancel(id){ const m = db.meetups[id]; if (Date.now() >= m.deadline) return err("마감 후에는 모임장만 취소할 수 있어요"); delete db.entries[id][uid]; save(); },
-    async removeEntry(id, who){ delete db.entries[id][who]; save(); },
+    async cancel(id){ const m = db.meetups[id]; if (Date.now() >= m.deadline) return err("마감 후에는 모임장만 취소할 수 있어요"); delete db.entries[id][uid]; checkBreak(m, id); save(); },
+    async removeEntry(id, who){ delete db.entries[id][who]; checkBreak(db.meetups[id], id); save(); },
     async closeNow(id){ db.meetups[id].deadline = Date.now(); save(); },
     async assignSeatsIfNeeded(id){ const m = db.meetups[id]; if (!m || m.seats || Date.now() < m.deadline) return; seat(id, { uid, name: meName(), host: m.hostUid === uid }); },
     async reseat(id){ seat(id, { uid, name: meName(), host: true }); },
@@ -427,7 +432,8 @@ function route(){
       const prev = S.meetup;
       S.meetup = m; autoSeat();
       // 실제 모드에서는 서버 푸시가 오므로, 체험 모드에서만 화면 안 알림
-      if (S.api.demo && prev && !prev.formedAt && m && m.formedAt) toast(`모임 성사! ${minOf(m)}명이 모였어요`);
+      if (S.api.demo && prev && m && !isFormed(prev) && isFormed(m)) toast(`모임 성사! ${minOf(m)}명이 모였어요`);
+      if (S.api.demo && prev && m && isFormed(prev) && !isFormed(m)) toast(`인원 미달! 최소 ${minOf(m)}명이 안 돼요`, 4000);
       // 추첨 기록은 모임장 기기에서만 구독 (규칙에서도 모임장만 읽기 허용)
       if (m && m.hostUid === S.api.uid && !drawSub){ drawSub = S.api.watchDraw(id, d => { S.draw = d; render(); }); S.unsub.push(drawSub); }
       render();
@@ -453,7 +459,7 @@ function topbar(){
 }
 
 function statusPill(m, mine){
-  const f = m.formedAt && !ended(m) ? `<span class="pill open">성사</span>` : "";
+  const f = isFormed(m) && !ended(m) ? `<span class="pill open">성사</span>` : "";
   let p = f + (ended(m) ? `<span class="pill past">종료</span>` : isPast(m) ? (m.seats ? `<span class="pill closed">자리배치 완료</span>` : `<span class="pill closed">마감</span>`) : `<span class="pill open">모집중</span>`);
   return (mine ? `<span class="pill mine">${mine}</span>` : "") + p;
 }
@@ -487,7 +493,7 @@ function renderNew(){
     </div>
     <label class="f">장소<input type="text" id="f-loc" maxlength="40" placeholder="예: 연남동 ○○"></label>
     <div class="two">
-      <label class="f">최소 인원<input type="number" id="f-min" min="2" max="36" value="${CFG.defaultMinPlayers || 6}" required inputmode="numeric"><small>이 인원이 모이면 신청자 모두에게 성사 알림</small></label>
+      <label class="f">최소 인원<input type="number" id="f-min" min="2" max="36" value="${CFG.defaultMinPlayers || 6}" required inputmode="numeric"><small>모이면 성사 알림, 취소로 모자라면 미달 알림</small></label>
       <label class="f">정원<input type="number" id="f-cap" min="2" max="36" value="12" required inputmode="numeric"><small>${PER_TABLE}명 넘으면 테이블을 나눠 배치</small></label>
     </div>
     <label class="f">안내 메모 <small>바이인, 블라인드, 준비물 등</small><textarea id="f-memo" maxlength="300" placeholder="바이인 3만원 / 리바이 1회"></textarea></label>
@@ -507,12 +513,14 @@ function seatPositions(n){
 function renderSeating(m){
   const me = S.api.uid;
   return `<div class="tables">${m.seats.tables.map(t => {
-    const pos = seatPositions(t.seats.length);
+    const dealer = t.seats.find(x => x.seat === 0), others = t.seats.filter(x => x.seat !== 0);
+    const op = seatPositions(others.length);
+    const pos = new Map(others.map((x,i) => [x, op[i]])); if (dealer) pos.set(dealer, { x: 50, y: 7 });
     return `<div class="tbl"><h4><span>${m.seats.tables.length>1 ? `${t.table}번 테이블` : "테이블"}</span><span class="num">${t.seats.length}명</span></h4>
-      <div class="oval" role="img" aria-label="자리배치도"><div class="felt">${esc(CFG.clubName)}</div><span class="dealer">딜러</span>
-      ${t.seats.map((s,i)=>`<div class="seat ${s.uid===me?"me":""}" style="left:${pos[i].x}%;top:${pos[i].y}%"><span class="c">${s.seat}</span><span class="l">${esc(s.name)}</span></div>`).join("")}
+      <div class="oval" role="img" aria-label="자리배치도"><div class="felt">${esc(CFG.clubName)}</div>${dealer ? "" : `<span class="dealer">딜러</span>`}
+      ${t.seats.map(s=>`<div class="seat ${s.uid===me?"me":""} ${s.seat===0?"dl":""}" style="left:${pos.get(s).x}%;top:${pos.get(s).y}%"><span class="c">${s.seat===0?"D":s.seat}</span><span class="l">${esc(s.name)}</span></div>`).join("")}
       </div>
-      <div class="seatlist">${t.seats.map(s=>`<div class="${s.uid===me?"me":""}"><span class="num">${s.seat}</span><span>${esc(s.name)}</span></div>`).join("")}</div>
+      <div class="seatlist">${t.seats.map(s=>`<div class="${s.uid===me?"me":""}"><span class="num">${s.seat===0?"D":s.seat}</span><span>${s.seat===0?"<b>딜러</b> ":""}${esc(s.name)}</span></div>`).join("")}</div>
     </div>`; }).join("")}</div>
     <p class="muted" style="font-size:12.5px;margin:8px 0 0">${fmtDate(m.seats.assignedAt)} 무작위 배치</p>`;
 }
@@ -536,7 +544,7 @@ function renderDetail(){
       : `<label class="f">한 줄 메모 <small>선택 · 예: 30분 늦어요</small><input type="text" id="memo" maxlength="60" value="${esc(S.memoDraft)}"></label>
          <button class="btn ${confirmed.length>=m.capacity?"":"primary"} block" data-act="join" ${S.busy?"disabled":""}>${confirmed.length>=m.capacity ? "대기자로 신청" : `${esc(S.name||"")} 참여 신청`}</button>`;
   } else {
-    action = mySeat ? `<div class="status ok">내 자리: ${mySeat.multi?`${mySeat.t}번 테이블 `:""}<span class="num">${mySeat.s}</span>번</div>`
+    action = mySeat ? `<div class="status ok">내 자리: ${mySeat.multi?`${mySeat.t}번 테이블 `:""}${mySeat.s===0 ? "<b>딜러</b> 🎴" : `<span class="num">${mySeat.s}</span>번`}</div>`
       : joined ? `<div class="status wait">${m.seats ? "대기자로 마감됐어요" : "자리배치 중…"}</div>`
       : `<div class="status muted">모집이 마감됐어요</div>`;
     if (joined) action += `<p class="muted" style="margin:0;font-size:13px">마감 후 취소는 모임장에게 말해주세요.</p>`;
@@ -566,8 +574,8 @@ function renderDetail(){
     const d = S.draw;
     const who = d.byHost ? "모임장(나)" : `${d.byName || "멤버"}님 폰에서 자동`;
     drawSec = `<h2 class="sec">추첨 기록 <span class="n">${d.steps.length}</span><span class="spacer" style="flex:1"></span><button class="btn sm ghost" data-act="toggle-draw">${S.showDraw ? "접기" : "펼치기"}</button></h2>
-      <p class="drawhead">${fmtDate(d.drawnAt)} · ${esc(who)} 추첨 · 신청 순서대로 남은 자리 카드를 한 장씩 뽑음 · 모임장에게만 보여요</p>
-      ${S.showDraw ? `<ol class="drawlog">${d.steps.map(s => `<li><span class="k">${s.n}</span><span class="who">${esc(s.name)}<small>신청 ${s.n}번</small></span><span class="to">${d.multi ? `${s.table}T-` : ""}${s.seat}번</span></li>`).join("")}</ol>` : ""}`;
+      <p class="drawhead">${fmtDate(d.drawnAt)} · ${esc(who)} 추첨 · 신청 순서대로 남은 자리 카드(딜러 포함)를 한 장씩 뽑음 · 모임장에게만 보여요</p>
+      ${S.showDraw ? `<ol class="drawlog">${d.steps.map(s => `<li><span class="k">${s.n}</span><span class="who">${esc(s.name)}<small>신청 ${s.n}번</small></span><span class="to">${d.multi ? `${s.table}T-` : ""}${seatName(s.seat)}</span></li>`).join("")}</ol>` : ""}`;
   }
 
   const li = (e, i) => `<li><span class="ord">${i+1}</span><span class="nm">${esc(e.name)}</span>${e.uid===me?`<span class="you">나</span>`:""}<span class="memo">${esc(e.memo)}</span>
