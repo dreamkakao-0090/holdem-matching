@@ -152,6 +152,25 @@ label.f small{font-weight:400;color:var(--muted)}
 .seat .c{width:32px;height:32px;border-radius:50%;background:var(--surface);border:3px dashed var(--chip);display:grid;place-items:center;
   font-family:var(--f-mono);font-weight:600;font-size:13px;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .seat.me .c{background:var(--chip);color:#3a2a05;border-style:solid;border-color:var(--red)}
+.seat.out .c{opacity:.35;border-style:solid;border-color:var(--muted)}
+.seat.out .l{opacity:.5;text-decoration:line-through}
+.seat .rk{position:absolute;top:-8px;right:4px;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:8px;padding:0 5px;line-height:16px;font-family:var(--f-mono)}
+.seat .rk.win{background:var(--chip);color:#3a2a05}
+.oval.ranking .seat:not(.out){cursor:pointer}
+.oval.ranking .seat:not(.out) .c{box-shadow:0 0 0 3px color-mix(in srgb,var(--red) 35%,transparent)}
+button.seat{background:none;border:0;padding:0;font:inherit;color:inherit}
+.seatlist .out{opacity:.45}
+.seatlist .rkt{margin-left:auto;font-family:var(--f-mono);font-size:12px;color:var(--red);font-weight:700;flex:none}
+.rankbox{margin-top:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:grid;gap:10px}
+.rankbox .hint{font-size:13.5px;color:var(--muted)}
+.rankbox .hint b{color:var(--red)}
+.ranklist{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.ranklist li{display:flex;gap:10px;align-items:center;font-size:14px;padding:4px 2px;min-width:0}
+.ranklist .r{font-family:var(--f-mono);font-weight:700;width:34px;flex:none;text-align:right}
+.ranklist li:first-child .r{color:var(--chip)}
+.ranklist .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.copyrow{display:flex;gap:8px;align-items:center}
+.copyrow input{flex:1;min-width:0;font-family:var(--f-mono);font-size:13px}
 .seat.dl .c{background:var(--ink);color:var(--bg);border-style:solid;border-color:var(--ink)}
 .seat.dl.me .c{border-color:var(--red)}
 .seat .l{background:var(--surface);border-radius:4px;padding:0 3px;font-size:11px;line-height:1.2;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
@@ -207,7 +226,7 @@ label.f small{font-weight:400;color:var(--muted)}
 "use strict";
 const CFG = window.APP_CONFIG;
 const PER_TABLE = CFG.seatsPerTable || 12;
-const APP_VERSION = "10.13-g";
+const APP_VERSION = "10.13-i";
 const UA = navigator.userAgent;
 const IS_IOS = /iPhone|iPad|iPod/.test(UA);
 const IN_APP = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER\(inapp|Line\//i.test(UA);
@@ -252,6 +271,29 @@ function drawSeating(confirmed, by){
 const minOf = m => m.minPlayers || CFG.defaultMinPlayers || 6;
 const isFormed = m => (m.formed !== undefined && m.formed !== null) ? !!m.formed : !!m.formedAt;
 const seatName = n => n === 0 ? "딜러" : `${n}번`;
+/* ---- 순위 기록: results.out = 탈락한 순서(꼴등부터) ---- */
+function seatedAll(m){ return m.seats ? m.seats.tables.flatMap(t => t.seats.map(x => ({ ...x, table: t.table }))) : []; }
+function rankState(m){
+  const players = seatedAll(m), ids = new Set(players.map(x => x.uid));
+  const out = ((m.results && m.results.out) || []).filter(u => ids.has(u));
+  const outSet = new Set(out), remaining = players.filter(x => !outSet.has(x.uid));
+  const total = players.length, done = total >= 2 && remaining.length === 1;
+  const rank = new Map(out.map((u, i) => [u, total - i]));           // 첫 탈락자 = 꼴등
+  if (done) rank.set(remaining[0].uid, 1);
+  const byId = new Map(players.map(x => [x.uid, x.name]));
+  const order = done ? [remaining[0].uid, ...out.slice().reverse()] : [];   // 1등 → 꼴등
+  return { players, out, remaining, total, done, rank, order, names: order.map(u => byId.get(u) || "") , nextRank: total - out.length };
+}
+
+function applyRankOp(m, op){
+  const R = rankState(m); let out = R.out.slice();
+  if (op.type === "bust"){ if (R.done || out.includes(op.uid) || !R.players.some(x => x.uid === op.uid)) return null; out.push(op.uid); }
+  else if (op.type === "undo"){ if (!out.length) return null; out.pop(); }
+  else if (op.type === "reset") out = [];
+  return out;
+}
+const canRank = m => !!m && (m.hostUid === S.api.uid || S.entries.some(e => e.uid === S.api.uid));
+
 /* 레이트 레지·빠진 자리 채우기: 기존 배치는 그대로 두고, 확정 인원 중 자리가 없는 사람을
    빈 1~11번 자리(딜러 제외)에 무작위로 앉힘. 테이블이 여럿이면 인원이 적은 테이블부터 */
 function fillSeats(m, entries){
@@ -330,6 +372,7 @@ function demoStore(){
       save();
     },
     async closeNow(id){ db.meetups[id].deadline = Date.now(); save(); },
+    async rankOp(id, op){ const m = db.meetups[id], out = applyRankOp(m, op); if (out) { m.results = { out, updatedAt: Date.now(), by: uid }; save(); } },
     async assignSeatsIfNeeded(id){ const m = db.meetups[id]; if (!m || m.seats || Date.now() < m.deadline) return;
       if (Object.keys(db.entries[id]).length < minOf(m)) return;   // 최소 인원 미달 → 모임 불성사, 배치 안 함
       seat(id, { uid, name: meName(), host: m.hostUid === uid }); },
@@ -425,6 +468,14 @@ async function firebaseStore(cfg){
       if (S.meetup && S.meetup.id === id && S.meetup.seats) await this.fillSeats(id);   // 빠진 자리 정리 + 대기자 채우기
     },
     async closeNow(id){ await updateDoc(mref(id), { deadline: Timestamp.now() }); },
+    async rankOp(id, op){
+      // 트랜잭션: 여러 명이 동시에 눌러도 최신 기록 위에 차례로 반영
+      await guarded(() => runTransaction(db, async tx => {
+        const s = await tx.get(mref(id)); if (!s.exists()) return;
+        const out = applyRankOp(toM(s), op); if (!out) return;
+        tx.update(mref(id), { results: { out, updatedAt: Date.now(), by: auth.currentUser.uid } });
+      }));
+    },
     async assignSeatsIfNeeded(id){
       const entries = await this.getEntries(id);
       await runTransaction(db, async tx => {
@@ -482,7 +533,7 @@ function route(){
   const p = new URLSearchParams(location.search); const h = location.hash.replace(/^#/, "");
   const id = p.get("m") || (h.startsWith("m=") ? h.slice(2) : null);
   const view = h === "new" ? "new" : id ? "detail" : "list";
-  S.unsub.forEach(f=>f()); S.unsub = []; S.view = view; S.id = id; S.confirm = null; S.meetup = undefined; S.entries = []; S.memoDraft = ""; S.draw = null; S.showDraw = false;
+  S.unsub.forEach(f=>f()); S.unsub = []; S.view = view; S.id = id; S.confirm = null; S.meetup = undefined; S.entries = []; S.memoDraft = ""; S.draw = null; S.showDraw = false; S.rankMode = false;
   if (view === "list") S.unsub.push(S.api.watchMeetups(ms => { S.meetups = ms; autoSeatAll(); render(); }));
   if (view === "detail"){
     let drawSub = null;
@@ -569,18 +620,48 @@ function seatPositions(n){
   });
 }
 function renderSeating(m){
-  const me = S.api.uid;
+  const me = S.api.uid, R = rankState(m), host = canRank(m);   // 참여자 누구나 순위 기록 가능
+  const ranking = host && S.rankMode && !R.done;
+  const rk = u => { const r = R.rank.get(u); return r ? `<span class="rk ${r===1?"win":""}">${r===1?"🏆1":r}위</span>` : ""; };
   return `<div class="tables">${m.seats.tables.map(t => {
     const dealer = t.seats.find(x => x.seat === 0), others = t.seats.filter(x => x.seat !== 0);
     const op = seatPositions(others.length);
     const pos = new Map(others.map((x,i) => [x, op[i]])); if (dealer) pos.set(dealer, { x: 50, y: 7 });
     return `<div class="tbl"><h4><span>${m.seats.tables.length>1 ? `${t.table}번 테이블` : "테이블"}</span><span class="num">${t.seats.length}명</span></h4>
-      <div class="oval" role="img" aria-label="자리배치도"><div class="felt">${esc(CFG.clubName)}</div>${dealer ? "" : `<span class="dealer">딜러</span>`}
-      ${t.seats.map(s=>`<div class="seat ${s.uid===me?"me":""} ${s.seat===0?"dl":""}" style="left:${pos.get(s).x}%;top:${pos.get(s).y}%"><span class="c">${s.seat===0?"D":s.seat}</span><span class="l">${esc(s.name)}</span></div>`).join("")}
+      <div class="oval ${ranking?"ranking":""}" role="img" aria-label="자리배치도"><div class="felt">${esc(CFG.clubName)}</div>${dealer ? "" : `<span class="dealer">딜러</span>`}
+      ${t.seats.map(s=>{
+        const isOut = R.rank.has(s.uid) && R.rank.get(s.uid) !== 1, tag = ranking && !isOut ? "button" : "div";
+        return `<${tag} class="seat ${s.uid===me?"me":""} ${s.seat===0?"dl":""} ${isOut?"out":""}" style="left:${pos.get(s).x}%;top:${pos.get(s).y}%" ${tag==="button"?`data-act="bust" data-uid="${esc(s.uid)}" aria-label="${esc(s.name)} 탈락"`:""}><span class="c">${s.seat===0?"D":s.seat}</span><span class="l">${esc(s.name)}</span>${rk(s.uid)}</${tag}>`; }).join("")}
       </div>
-      <div class="seatlist">${t.seats.map(s=>`<div class="${s.uid===me?"me":""}"><span class="num">${s.seat===0?"D":s.seat}</span><span>${s.seat===0?"<b>딜러</b> ":""}${esc(s.name)}${s.late?' <small class="muted">레이트</small>':""}</span></div>`).join("")}</div>
+      <div class="seatlist">${t.seats.map(s=>{ const r = R.rank.get(s.uid), isOut = r && r !== 1;
+        return `<div class="${s.uid===me?"me":""} ${isOut?"out":""}" ${ranking && !isOut ? `data-act="bust" data-uid="${esc(s.uid)}" role="button" tabindex="0" style="cursor:pointer"` : ""}><span class="num">${s.seat===0?"D":s.seat}</span><span>${s.seat===0?"<b>딜러</b> ":""}${esc(s.name)}${s.late?' <small class="muted">레이트</small>':""}</span>${r?`<span class="rkt">${r}위</span>`:""}</div>`; }).join("")}</div>
     </div>`; }).join("")}</div>
-    <p class="muted" style="font-size:12.5px;margin:8px 0 0">${fmtDate(m.seats.assignedAt)} 무작위 배치</p>`;
+    <p class="muted" style="font-size:12.5px;margin:8px 0 0">${fmtDate(m.seats.assignedAt)} 무작위 배치</p>
+    ${renderRanking(m, R, host)}`;
+}
+
+function renderRanking(m, R, host){
+  if (R.total < 2) return "";
+  if (!host && !R.out.length) return "";            // 기록 시작 전엔 참여자에게만 보임
+  let body = "";
+  if (R.done){
+    const text = R.names.join(",");
+    body = `<div class="status ok" style="font-weight:600">🏆 순위 정리 완료 · ${R.total}명</div>
+      <ol class="ranklist">${R.names.map((n,i)=>`<li><span class="r">${i+1}위</span><span class="n">${esc(n)}</span></li>`).join("")}</ol>
+      <div class="copyrow"><input type="text" id="rankText" readonly value="${esc(text)}" aria-label="순위 텍스트"><button class="btn sm primary" data-act="copy-rank">순위 복사</button></div>`;
+  } else if (host && S.rankMode){
+    body = `<div class="hint">탈락한 사람의 자리를 <b>꼴등부터</b> 순서대로 누르세요. 다음 탈락은 <b>${R.nextRank}위</b> · 남은 인원 ${R.remaining.length}명</div>`;
+  } else if (host){
+    body = `<div class="hint">게임이 시작되면 참여자 누구나 탈락자를 자리배치표에서 체크해 순위를 정리할 수 있어요.${R.out.length ? ` 지금까지 ${R.out.length}명 탈락 · 남은 ${R.remaining.length}명` : ""}</div>`;
+  } else {
+    body = `<div class="hint">순위 기록 중 · ${R.out.length}명 탈락 · 남은 ${R.remaining.length}명</div>`;
+  }
+  const conf = (S.confirm && S.confirm.rank) ? `<div class="confirm"><div>${esc(S.confirm.text)}</div><div class="hostbox"><button class="btn sm red" data-act="confirm-yes">${esc(S.confirm.yes)}</button><button class="btn sm" data-act="confirm-no">그만두기</button></div></div>` : "";
+  const ctl = host ? `<div class="hostbox">
+      ${!R.done ? `<button class="btn sm ${S.rankMode?"red":""}" data-act="rank-mode">${S.rankMode ? "탈락 체크 끝내기" : (R.out.length ? "탈락 체크 계속하기" : "탈락 체크 시작")}</button>` : ""}
+      ${R.out.length ? `<button class="btn sm" data-act="rank-undo">↶ 마지막 탈락 되돌리기</button>` : ""}
+      ${R.out.length ? `<button class="btn sm danger" data-act="rank-reset">순위 초기화</button>` : ""}</div>` : "";
+  return `<h2 class="sec">순위</h2><div class="rankbox">${body}${ctl}${conf}</div>`;
 }
 
 function renderDetail(){
@@ -653,7 +734,7 @@ function renderDetail(){
     ${host && e.uid!==me ? `<button class="btn sm ghost x" data-act="kick" data-uid="${esc(e.uid)}" aria-label="${esc(e.name)} 신청 취소">빼기</button>` : ""}</li>`;
 
   let conf = "";
-  if (S.confirm){
+  if (S.confirm && !S.confirm.rank){
     const c = S.confirm;
     conf = `<div class="confirm"><div>${esc(c.text)}</div><div class="hostbox"><button class="btn sm red" data-act="confirm-yes">${esc(c.yes)}</button><button class="btn sm" data-act="confirm-no">그만두기</button></div></div>`;
   }
@@ -715,6 +796,23 @@ document.addEventListener("click", e => {
   else if (a === "new") needName(()=>go(location.pathname + "#new"));
   else if (a === "push") S.api.enablePush().then(()=>{ toast("알림을 켰어요"); render(); }, e=>{ toast(errMsg(e)); render(); });
   else if (a === "toggle-draw"){ S.showDraw = !S.showDraw; render(); }
+  else if (a === "rank-mode"){ S.rankMode = !S.rankMode; render(); }
+  else if (a === "bust" || a === "rank-undo" || a === "rank-reset"){
+    const m = S.meetup; if (!canRank(m)) return;
+    if (a === "rank-reset"){ S.confirm = { rank: true, text: "기록한 순위를 모두 지울까요? 모든 참여자 화면에서 지워져요.", yes: "초기화", fn: ()=>S.api.rankOp(id, { type: "reset" }) }; render(); return; }
+    const op = a === "bust" ? { type: "bust", uid: b.dataset.uid } : { type: "undo" };
+    const out = applyRankOp(m, op); if (!out) return;
+    const next = { ...m, results: { out } };
+    S.meetup = next;                                   // 바로 화면에 반영 (서버 반영은 뒤따라옴)
+    if (rankState(next).done){ S.rankMode = false; toast("순위 정리 완료! 순위 복사 버튼을 누르세요", 3500); }
+    render();
+    S.api.rankOp(id, op).catch(e => { toast(errMsg(e), 6000); });
+  }
+  else if (a === "copy-rank"){
+    const inp = $("#rankText"), text = inp ? inp.value : "";
+    const fallback = () => { try { inp.focus(); inp.select(); inp.setSelectionRange(0, text.length); document.execCommand("copy"); toast("순위를 복사했어요"); } catch { toast("길게 눌러 직접 복사해 주세요", 4000); } };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(()=>toast("순위를 복사했어요"), fallback); else fallback();
+  }
   else if (a === "join"){
     // 신청 버튼을 누르는 순간(사용자 동작 안에서) 알림 권한도 함께 요청
     if (!S.api.demo && S.api.pushSupported() && Notification.permission === "default") S.api.enablePush().then(render, ()=>render());
