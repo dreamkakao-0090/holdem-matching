@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1f5a40">
+<title>덤불홀덤 모임</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="덤불홀덤 모임">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<script>
+/* ============================================================
+   ① 여기만 바꾸면 됩니다 — Firebase 콘솔에서 복사한 설정값
+   apiKey가 "여기에" 로 남아 있으면 '체험 모드'(이 기기에서만 저장)로 동작합니다.
+   ============================================================ */
+window.APP_CONFIG = {
+  clubName: "덤불홀덤",
+  seatsPerTable: 12,
+  defaultMinPlayers: 6,
+  // Firebase 콘솔 > 프로젝트 설정 > 클라우드 메시징 > 웹 푸시 인증서 > 키 쌍
+  vapidKey: "BH2nMdvXhuqlDuVo4eo53RRYWRbqA0xJFIHoMft0J0xSLByQOvXdJ1la7IORkPfB-A-caJZEvErxbt8Y0WnOK-w",
+  firebase: {
+    apiKey: "AIzaSyDMxB7HWcFMf63FoM6fPG4MDlCuVJ80Lt0",
+    authDomain: "dumbul-holdem-matching.firebaseapp.com",
+    projectId: "dumbul-holdem-matching",
+    storageBucket: "dumbul-holdem-matching.firebasestorage.app",
+    messagingSenderId: "215548924678",
+    appId: "1:215548924678:web:3d56d4a3f73c198e90c487"
+  }
+};
+</script>
+<style>
+/* Layout: single mobile column; felt-green table header, card-like list rows, oval table for seating */
+:root{
+  --bg:#f2f5f3; --surface:#ffffff; --surface-2:#e9efeb; --ink:#16201b; --muted:#5b6a62; --line:#d6dfda;
+  --felt:#1f5a40; --felt-2:#174632; --felt-ink:#eef6f1; --rail:#5a3a22;
+  --red:#c2332a; --chip:#d9a531; --ok:#2c7a4b; --ok-bg:#e1f1e7; --warn:#9a5b00; --warn-bg:#fbefd9; --off:#6b7570; --off-bg:#e6eae8;
+  --f-display:"Black Han Sans","IBM Plex Sans KR",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --r:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0e1411; --surface:#161f1a; --surface-2:#1d2822; --ink:#e6eee9; --muted:#97a69e; --line:#2a3630;
+    --felt:#1b4d37; --felt-2:#143a2a; --felt-ink:#e5f0ea; --rail:#4a301d;
+    --red:#ff7166; --chip:#e6b748; --ok:#6fd39a; --ok-bg:#173325; --warn:#f0b357; --warn-bg:#352a15; --off:#9aa59f; --off-bg:#232c27;
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--f-body);-webkit-font-smoothing:antialiased;
+  padding-bottom:env(safe-area-inset-bottom,0px)}
+button,input,textarea,select{font:inherit;color:inherit}
+.wrap{max-width:560px;margin:0 auto;padding-inline:16px}
+
+/* top bar */
+.top{background:linear-gradient(180deg,var(--felt),var(--felt-2));color:var(--felt-ink);
+  padding-top:env(safe-area-inset-top,0px);position:sticky;top:0;z-index:5;box-shadow:0 1px 0 rgba(0,0,0,.15)}
+.top .wrap{display:flex;align-items:center;gap:10px;min-height:58px}
+.logo{font-family:var(--f-display);font-size:22px;letter-spacing:.5px;display:flex;align-items:center;gap:6px;margin:0;font-weight:400;cursor:pointer;background:none;border:0;color:inherit;padding:0}
+.logo .suit{color:var(--chip);font-size:18px}
+.top .spacer{flex:1}
+.me{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);
+  border-radius:999px;padding:5px 12px 5px 6px;font-size:13px;cursor:pointer;color:inherit}
+.me .dot{width:22px;height:22px;border-radius:50%;background:var(--chip);color:#3a2a05;display:grid;place-items:center;font-weight:700;font-size:12px}
+.back{background:none;border:0;color:inherit;font-size:22px;padding:4px 6px 4px 0;cursor:pointer;line-height:1}
+
+.demo{background:var(--warn-bg);color:var(--warn);font-size:12.5px;padding:8px 0;border-bottom:1px solid var(--line)}
+
+main{padding-block:18px 96px}
+h2.sec{font-size:13px;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:22px 0 10px;display:flex;align-items:center;gap:8px}
+h2.sec .n{font-family:var(--f-mono);color:var(--ink)}
+
+/* buttons */
+.btn{appearance:none;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:11px 16px;font-weight:600;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:46px}
+.btn:focus-visible,.card:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--chip);outline-offset:2px}
+.btn.primary{background:var(--felt);border-color:var(--felt);color:var(--felt-ink)}
+.btn.red{background:var(--red);border-color:var(--red);color:#fff}
+.btn.ghost{background:transparent}
+.btn.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 40%,var(--line))}
+.btn.block{width:100%}
+.btn.sm{min-height:36px;padding:6px 12px;font-size:13px;border-radius:10px}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.fab{position:fixed;right:16px;bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:6;border-radius:999px;padding:14px 20px;
+  box-shadow:0 6px 20px rgba(0,0,0,.22);font-size:15px}
+
+/* meetup list */
+.list{display:grid;gap:10px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;cursor:pointer;display:grid;gap:8px;text-align:left;width:100%}
+.card .row{display:flex;align-items:center;gap:8px;min-width:0}
+.card h3{margin:0;font-size:17px;line-height:1.3;flex:1;min-width:0;overflow-wrap:anywhere}
+.meta{color:var(--muted);font-size:13.5px;display:flex;flex-wrap:wrap;gap:4px 12px}
+.meta b{color:var(--ink);font-weight:500}
+.pill{font-size:12px;font-weight:600;border-radius:999px;padding:3px 9px;white-space:nowrap}
+.pill.open{background:var(--ok-bg);color:var(--ok)}
+.pill.closed{background:var(--warn-bg);color:var(--warn)}
+.pill.past{background:var(--off-bg);color:var(--off)}
+.pill.mine{background:var(--chip);color:#3a2a05}
+.bar{height:6px;background:var(--surface-2);border-radius:99px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--felt);border-radius:99px}
+.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.empty{border:1px dashed var(--line);border-radius:var(--r);padding:28px 18px;text-align:center;color:var(--muted)}
+.empty .big{font-size:30px;color:var(--red);letter-spacing:6px}
+
+/* detail */
+.hero{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px 16px;display:grid;gap:12px}
+.hero h1{font-size:22px;margin:0;line-height:1.3;text-wrap:balance;overflow-wrap:anywhere}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:14.5px;margin:0}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.note{background:var(--surface-2);border-radius:10px;padding:10px 12px;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.clock{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:13.5px;color:var(--muted)}
+.clock .num{font-size:20px;color:var(--ink);font-weight:600}
+
+.action{margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;display:grid;gap:10px}
+.action .status{font-weight:600}
+.action .status.ok{color:var(--ok)} .action .status.wait{color:var(--warn)}
+input[type=text],input[type=number],input[type=datetime-local],textarea{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:11px 12px;min-height:46px}
+textarea{min-height:76px;resize:vertical}
+label.f{display:grid;gap:6px;font-size:13.5px;font-weight:600}
+label.f small{font-weight:400;color:var(--muted)}
+.check{display:flex;align-items:center;gap:8px;font-size:14px}
+.check input{width:20px;height:20px;accent-color:var(--felt)}
+
+.people{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.people li{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line);min-width:0}
+.people li:first-child{border-top:0}
+.people .ord{font-family:var(--f-mono);color:var(--muted);width:24px;text-align:right;font-size:13px;flex:none}
+.people .nm{font-weight:600;flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.people .memo{color:var(--muted);font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.people .you{font-size:11px;background:var(--chip);color:#3a2a05;border-radius:6px;padding:1px 6px;font-weight:700;flex:none}
+.people .x{margin-left:auto;flex:none}
+.people.wait{opacity:.85}
+
+/* seating table */
+.tables{display:grid;gap:16px}
+.tbl{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.tbl h4{margin:0 0 10px;font-size:14px;display:flex;justify-content:space-between;color:var(--muted);font-weight:600}
+.oval{position:relative;width:100%;max-width:100%;aspect-ratio:16/11;margin:4px 0 8px}
+.oval .felt{position:absolute;inset:15% 13%;border-radius:999px;background:radial-gradient(ellipse at 50% 40%,#2b7a55,var(--felt) 60%,var(--felt-2));
+  box-shadow:0 0 0 7px var(--rail),inset 0 0 24px rgba(0,0,0,.35);display:grid;place-items:center;color:rgba(255,255,255,.55);
+  font-family:var(--f-display);font-size:clamp(13px,4vw,18px);letter-spacing:1px}
+.seat{position:absolute;transform:translate(-50%,-50%);display:grid;justify-items:center;gap:2px;width:64px}
+.seat .c{width:32px;height:32px;border-radius:50%;background:var(--surface);border:3px dashed var(--chip);display:grid;place-items:center;
+  font-family:var(--f-mono);font-weight:600;font-size:13px;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.seat.me .c{background:var(--chip);color:#3a2a05;border-style:solid;border-color:var(--red)}
+.seat .l{font-size:11px;line-height:1.2;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.dealer{position:absolute;left:50%;top:6%;transform:translate(-50%,-50%);background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:10.5px;padding:1px 6px;color:var(--muted)}
+.seatlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px}
+.seatlist div{display:flex;gap:8px;align-items:center;background:var(--surface-2);border-radius:8px;padding:6px 10px;min-width:0;font-size:14px}
+.seatlist .num{font-weight:600;width:22px;flex:none}
+.seatlist span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seatlist .me{outline:2px solid var(--chip)}
+
+.hostbox{display:flex;flex-wrap:wrap;gap:8px}
+.confirm{background:var(--warn-bg);color:var(--ink);border-radius:12px;padding:12px;display:grid;gap:10px;margin-top:10px}
+.formed{display:flex;align-items:center;gap:10px;border-radius:12px;padding:10px 12px;font-size:14px;font-weight:600}
+.formed.yes{background:var(--ok-bg);color:var(--ok)}
+.formed.no{background:var(--surface-2);color:var(--muted)}
+.formed .chips{display:flex;gap:3px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+.formed .chips i{width:10px;height:10px;border-radius:50%;border:2px solid currentColor;display:block}
+.formed .chips i.on{background:currentColor}
+.pushrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13.5px;color:var(--muted)}
+.pushrow .btn{flex:none}
+.drawlog{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.drawlog li{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;padding:9px 14px;border-top:1px solid var(--line);font-size:14px;min-width:0}
+.drawlog li:first-child{border-top:0}
+.drawlog .k{font-family:var(--f-mono);color:var(--muted);font-size:12.5px;text-align:right}
+.drawlog .who{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.drawlog .who small{color:var(--muted);margin-left:6px}
+.drawlog .to{font-family:var(--f-mono);font-weight:600;background:var(--chip);color:#3a2a05;border-radius:8px;padding:2px 8px;font-size:13px}
+.drawhead{font-size:12.5px;color:var(--muted);margin:8px 2px 0}
+.form{display:grid;gap:14px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:420px){.two{grid-template-columns:1fr}}
+
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:grid;align-items:end}
+.sheet{background:var(--bg);border-radius:18px 18px 0 0;padding:20px 16px calc(20px + env(safe-area-inset-bottom,0px));max-width:560px;width:100%;margin:0 auto;display:grid;gap:12px}
+.sheet h3{margin:0;font-size:18px}
+
+.toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);
+  padding:10px 16px;border-radius:999px;font-size:14px;z-index:30;max-width:calc(100% - 32px);text-align:center}
+.err{color:var(--red);font-size:13.5px}
+.muted{color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.card{transition:transform .12s} .card:active{transform:scale(.99)}}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap" id="topbar"></div></header>
+<div id="demo" hidden class="demo"><div class="wrap">체험 모드: 데이터가 이 기기에만 저장됩니다. Firebase 설정을 넣으면 멤버 모두와 공유돼요.</div></div>
+<main class="wrap" id="app"><p class="muted">불러오는 중…</p></main>
+<div id="overlay"></div>
+
+<script>
+(() => {
+"use strict";
+const CFG = window.APP_CONFIG;
+const PER_TABLE = CFG.seatsPerTable || 12;
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const store = { get(k){ try { return localStorage.getItem(k); } catch { return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch {} } };
+
+/* ---------- 시간 표시 ---------- */
+const DOW = ["일","월","화","수","목","금","토"];
+function fmtDate(ms){ const d = new Date(ms); return `${d.getMonth()+1}/${d.getDate()}(${DOW[d.getDay()]}) ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; }
+function left(ms){
+  let s = Math.max(0, Math.floor((ms - Date.now())/1000));
+  const d = Math.floor(s/86400); s%=86400; const h = Math.floor(s/3600); s%=3600; const m = Math.floor(s/60); const sec = s%60;
+  if (d) return `${d}일 ${h}시간`; if (h) return `${h}시간 ${m}분`; if (m) return `${m}분 ${sec}초`; return `${sec}초`;
+}
+function toLocalInput(ms){ const d = new Date(ms - new Date(ms).getTimezoneOffset()*60000); return d.toISOString().slice(0,16); }
+
+/* ---------- 자리 배치 (순수 함수) ---------- */
+function rand(n){ const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; }
+function shuffle(arr){ const a = arr.slice(); for (let i=a.length-1;i>0;i--){ const j = rand(i+1); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function sortEntries(entries){ return entries.slice().sort((a,b)=>(a.createdAt??Infinity)-(b.createdAt??Infinity) || (a.uid<b.uid?-1:1)); }
+function splitEntries(m, entries){ const s = sortEntries(entries); return { confirmed: s.slice(0, m.capacity), waiting: s.slice(m.capacity) }; }
+/* 신청 순서대로 한 명씩 남은 자리 카드 중 하나를 무작위로 뽑는 방식. 뽑은 순서를 기록으로 남김 */
+function drawSeating(confirmed, by){
+  const n = confirmed.length, at = Date.now();
+  const t = Math.max(1, Math.ceil(n / PER_TABLE));
+  const cards = [], tables = [];
+  for (let k=0;k<t;k++){
+    const size = Math.floor(n/t) + (k < n % t ? 1 : 0);
+    tables.push({ table: k+1, seats: [] });
+    for (let s=1;s<=size;s++) cards.push({ table: k+1, seat: s });
+  }
+  const steps = confirmed.map((p, i) => {
+    const c = cards.splice(rand(cards.length), 1)[0];
+    tables[c.table-1].seats.push({ seat: c.seat, uid: p.uid, name: p.name });
+    return { n: i+1, uid: p.uid, name: p.name, table: c.table, seat: c.seat };
+  });
+  tables.forEach(tb => tb.seats.sort((a,b)=>a.seat-b.seat));
+  return { seats: { assignedAt: at, tables: n ? tables : [] }, log: { drawnAt: at, byUid: by.uid, byName: by.name, byHost: !!by.host, multi: t > 1, steps } };
+}
+const minOf = m => m.minPlayers || CFG.defaultMinPlayers || 6;
+
+/* ---------- 체험 모드 저장소 (이 기기 전용) ---------- */
+function demoStore(){
+  const KEY = "dumbul-meetup-demo";
+  const uid = store.get("demo-uid") || ("u" + Math.random().toString(36).slice(2,10)); store.set("demo-uid", uid);
+  let db = null; try { db = JSON.parse(store.get(KEY)); } catch {}
+  if (!db || db.v !== 2){
+    const now = Date.now(), H = 3600e3;
+    const names = ["민수","지훈","서연","하늘","태호","유진","도윤","수아","현우","예린","준서","다은","시우","채원"];
+    const mk = (pre, list, t0) => list.map((n,i)=>({ uid:pre+i, name:n, memo:"", createdAt: t0 + i*60e3 }));
+    const e1 = mk("x", names, now - 5*H); e1[3].memo = "30분 늦어요";
+    const e3 = mk("z", names.slice(4,8), now - 3*H);
+    const past = mk("y", names.slice(0,9), now - 80*H);
+    const pastDraw = drawSeating(past, { uid:"y0", name:"민수", host:true });
+    db = { v:2, meetups: {
+      ex1: { id:"ex1", title:"[예시] 금요 정기 토너먼트", date: now + 30*H, deadline: now + 2*H, location:"연남동 덤불라운지", capacity:12, minPlayers:6, memo:"바이인 3만원 / 리바이 1회\n늦으면 단톡에 미리 말해주세요", hostUid:"x0", hostName:"민수", seats:null, formedAt: now - 4.9*H, createdAt: now - 6*H },
+      ex3: { id:"ex3", title:"[예시] 일요일 낮 캐시게임", date: now + 100*H, deadline: now + 90*H, location:"합정", capacity:9, minPlayers:6, memo:"", hostUid:"z0", hostName:"태호", seats:null, formedAt:null, createdAt: now - 3*H },
+      ex2: { id:"ex2", title:"[예시] 지난주 번개", date: now - 70*H, deadline: now - 74*H, location:"망원동", capacity:9, minPlayers:6, memo:"", hostUid:"y0", hostName:"민수", seats: pastDraw.seats, formedAt: now - 79*H, createdAt: now - 90*H }
+    }, entries: { ex1: Object.fromEntries(e1.map(e=>[e.uid,e])), ex3: Object.fromEntries(e3.map(e=>[e.uid,e])), ex2: Object.fromEntries(past.map(e=>[e.uid,e])) },
+    draws: { ex2: pastDraw.log } };
+  }
+  const subs = new Set();
+  const save = () => { store.set(KEY, JSON.stringify(db)); subs.forEach(f=>f()); };
+  const on = f => { subs.add(f); setTimeout(f); return () => subs.delete(f); };
+  const err = msg => Promise.reject(new Error(msg));
+  const meName = () => S.name || "나";
+  function seat(id, by){ const m = db.meetups[id]; const r = drawSeating(splitEntries(m, Object.values(db.entries[id])).confirmed, by); m.seats = r.seats; db.draws[id] = r.log; save(); }
+  return {
+    demo: true, uid,
+    watchMeetups(cb){ return on(()=>cb(Object.values(db.meetups).sort((a,b)=>b.date-a.date))); },
+    watchMeetup(id, cb){ return on(()=>cb(db.meetups[id] ? {...db.meetups[id]} : null)); },
+    watchEntries(id, cb){ return on(()=>cb(Object.values(db.entries[id]||{}))); },
+    watchDraw(id, cb){ return on(()=>cb(db.meetups[id]?.hostUid === uid ? (db.draws[id] || null) : null)); },
+    async getEntries(id){ return Object.values(db.entries[id]||{}); },
+    async createMeetup(m){ const id = "m"+Date.now().toString(36); db.meetups[id] = { ...m, id, hostUid: uid, seats: null, formedAt: null, createdAt: Date.now() }; db.entries[id] = {}; save(); return id; },
+    async join(id, name, memo){
+      const m = db.meetups[id]; if (Date.now() >= m.deadline) return err("모집이 마감됐어요");
+      db.entries[id][uid] = { uid, name, memo, createdAt: Date.now() };
+      if (!m.formedAt && Object.keys(db.entries[id]).length >= minOf(m)) m.formedAt = Date.now();
+      save();
+    },
+    async cancel(id){ const m = db.meetups[id]; if (Date.now() >= m.deadline) return err("마감 후에는 모임장만 취소할 수 있어요"); delete db.entries[id][uid]; save(); },
+    async removeEntry(id, who){ delete db.entries[id][who]; save(); },
+    async closeNow(id){ db.meetups[id].deadline = Date.now(); save(); },
+    async assignSeatsIfNeeded(id){ const m = db.meetups[id]; if (!m || m.seats || Date.now() < m.deadline) return; seat(id, { uid, name: meName(), host: m.hostUid === uid }); },
+    async reseat(id){ seat(id, { uid, name: meName(), host: true }); },
+    async deleteMeetup(id){ delete db.meetups[id]; delete db.entries[id]; delete db.draws[id]; save(); },
+    pushSupported(){ return false; },
+    async enablePush(){ throw new Error("체험 모드에서는 알림을 켤 수 없어요"); },
+    async refreshPush(){}
+  };
+}
+
+/* ---------- Firebase 저장소 (멤버 모두 공유) ---------- */
+async function firebaseStore(cfg){
+  const V = "10.12.2", base = `https://www.gstatic.com/firebasejs/${V}/`;
+  const [{ initializeApp }, fs, au] = await Promise.all([import(base+"firebase-app.js"), import(base+"firebase-firestore.js"), import(base+"firebase-auth.js")]);
+  const { getFirestore, collection, doc, setDoc, deleteDoc, updateDoc, onSnapshot, query, orderBy, limit, serverTimestamp, Timestamp, runTransaction, getDocs, writeBatch } = fs;
+  const app = initializeApp(cfg); const db = getFirestore(app); const auth = au.getAuth(app);
+  const user = await new Promise((res, rej) => { const un = au.onAuthStateChanged(auth, u => { if (u){ un(); res(u); } }); au.signInAnonymously(auth).catch(rej); });
+  const ms = v => v instanceof Timestamp ? v.toMillis() : (v ?? null);
+  const opt = { serverTimestamps: "estimate" };
+  const toM = s => { const d = s.data(opt); return { ...d, id: s.id, date: ms(d.date), deadline: ms(d.deadline), createdAt: ms(d.createdAt) }; };
+  const toE = s => { const d = s.data(opt); return { uid: s.id, name: d.name, memo: d.memo || "", createdAt: ms(d.createdAt) }; };
+  const mref = id => doc(db, "meetups", id);
+  const ecol = id => collection(db, "meetups", id, "entries");
+  const dref = id => doc(db, "meetups", id, "private", "draw");
+  const fail = e => console.error(e);
+
+  /* --- 푸시 알림 (FCM) --- */
+  const pushSupported = () => "Notification" in window && "serviceWorker" in navigator && "PushManager" in window && !!CFG.vapidKey && !CFG.vapidKey.startsWith("여기에");
+  let messaging = null, msgMod = null;
+  async function pushToken(){
+    msgMod = msgMod || await import(base+"firebase-messaging.js");
+    if (!(await msgMod.isSupported())) throw new Error("이 브라우저는 알림을 지원하지 않아요");
+    const reg = await navigator.serviceWorker.register("firebase-messaging-sw.js?cfg=" + encodeURIComponent(JSON.stringify(cfg)), { scope: "./" });
+    await navigator.serviceWorker.ready;
+    if (!messaging){
+      messaging = msgMod.getMessaging(app);
+      msgMod.onMessage(messaging, p => { const n = p.notification || {}; toast([n.title, n.body].filter(Boolean).join(" · ")); });
+    }
+    const token = await msgMod.getToken(messaging, { vapidKey: CFG.vapidKey, serviceWorkerRegistration: reg });
+    await setDoc(doc(db, "pushTokens", user.uid), { token, updatedAt: serverTimestamp() });
+    return token;
+  }
+
+  return {
+    demo: false, uid: user.uid,
+    watchMeetups(cb){ return onSnapshot(query(collection(db,"meetups"), orderBy("date","desc"), limit(40)), s => cb(s.docs.map(toM)), fail); },
+    watchMeetup(id, cb){ return onSnapshot(mref(id), s => cb(s.exists() ? toM(s) : null), fail); },
+    watchEntries(id, cb){ return onSnapshot(ecol(id), s => cb(s.docs.map(toE)), fail); },
+    watchDraw(id, cb){ return onSnapshot(dref(id), s => cb(s.exists() ? s.data() : null), () => cb(null)); },
+    async getEntries(id){ return (await getDocs(ecol(id))).docs.map(toE); },
+    async createMeetup(m){
+      const ref = doc(collection(db,"meetups"));
+      await setDoc(ref, { title:m.title, location:m.location, memo:m.memo, capacity:m.capacity, minPlayers:m.minPlayers, hostName:m.hostName,
+        date: Timestamp.fromMillis(m.date), deadline: Timestamp.fromMillis(m.deadline), hostUid: user.uid, seats: null,
+        appUrl: location.origin + location.pathname, createdAt: serverTimestamp() });
+      return ref.id;
+    },
+    async join(id, name, memo){ await setDoc(doc(ecol(id), user.uid), { name, memo, createdAt: serverTimestamp() }); },
+    async cancel(id){ await deleteDoc(doc(ecol(id), user.uid)); },
+    async removeEntry(id, who){ await deleteDoc(doc(ecol(id), who)); },
+    async closeNow(id){ await updateDoc(mref(id), { deadline: Timestamp.now() }); },
+    async assignSeatsIfNeeded(id){
+      const entries = await this.getEntries(id);
+      await runTransaction(db, async tx => {
+        const s = await tx.get(mref(id)); if (!s.exists()) return;
+        const m = toM(s); if (m.seats || Date.now() < m.deadline) return;
+        const r = drawSeating(splitEntries(m, entries).confirmed, { uid: user.uid, name: S.name || "", host: m.hostUid === user.uid });
+        tx.update(mref(id), { seats: r.seats });
+        tx.set(dref(id), r.log);
+      });
+    },
+    async reseat(id){
+      const entries = await this.getEntries(id);
+      await runTransaction(db, async tx => {
+        const s = await tx.get(mref(id));
+        const r = drawSeating(splitEntries(toM(s), entries).confirmed, { uid: user.uid, name: S.name || "", host: true });
+        tx.update(mref(id), { seats: r.seats });
+        tx.set(dref(id), r.log);
+      });
+    },
+    async deleteMeetup(id){
+      const b = writeBatch(db); (await getDocs(ecol(id))).docs.forEach(d => b.delete(d.ref)); b.delete(dref(id)); b.delete(mref(id)); await b.commit();
+    },
+    pushSupported,
+    async enablePush(){
+      if (!pushSupported()) throw new Error("이 브라우저에서는 알림을 받을 수 없어요");
+      const perm = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
+      if (perm !== "granted") throw new Error("알림이 차단돼 있어요. 브라우저 설정에서 허용해 주세요");
+      await pushToken();
+    },
+    async refreshPush(){ if (pushSupported() && Notification.permission === "granted") await pushToken().catch(fail); }
+  };
+}
+
+/* ---------- 상태 ---------- */
+const S = { api:null, view:"list", id:null, meetups:[], meetup:undefined, entries:[], name: store.get("nickname") || "", memoDraft:"", busy:false, confirm:null, unsub:[] };
+const isPast = m => Date.now() >= m.deadline;
+const ended = m => Date.now() > m.date + 12*3600e3;
+
+function toast(msg){ const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t); setTimeout(()=>t.remove(), 2400); }
+function errMsg(e){ const c = e && (e.code || ""); if (String(c).includes("permission")) return "권한이 없어요 (마감됐거나 본인 것이 아님)"; return e?.message || "잠시 후 다시 시도해 주세요"; }
+
+/* ---------- 라우팅 ---------- */
+function route(){
+  const p = new URLSearchParams(location.search); const h = location.hash.replace(/^#/, "");
+  const id = p.get("m") || (h.startsWith("m=") ? h.slice(2) : null);
+  const view = h === "new" ? "new" : id ? "detail" : "list";
+  S.unsub.forEach(f=>f()); S.unsub = []; S.view = view; S.id = id; S.confirm = null; S.meetup = undefined; S.entries = []; S.memoDraft = ""; S.draw = null; S.showDraw = false;
+  if (view === "list") S.unsub.push(S.api.watchMeetups(ms => { S.meetups = ms; autoSeatAll(); render(); }));
+  if (view === "detail"){
+    let drawSub = null;
+    S.unsub.push(S.api.watchMeetup(id, m => {
+      const prev = S.meetup;
+      S.meetup = m; autoSeat();
+      // 실제 모드에서는 서버 푸시가 오므로, 체험 모드에서만 화면 안 알림
+      if (S.api.demo && prev && !prev.formedAt && m && m.formedAt) toast(`모임 성사! ${minOf(m)}명이 모였어요`);
+      // 추첨 기록은 모임장 기기에서만 구독 (규칙에서도 모임장만 읽기 허용)
+      if (m && m.hostUid === S.api.uid && !drawSub){ drawSub = S.api.watchDraw(id, d => { S.draw = d; render(); }); S.unsub.push(drawSub); }
+      render();
+    }));
+    S.unsub.push(S.api.watchEntries(id, es => { S.entries = es; render(); }));
+  }
+  render(); window.scrollTo(0,0);
+}
+function go(q){ history.pushState(null, "", q); route(); }
+const linkFor = id => location.origin + location.pathname + "?m=" + encodeURIComponent(id);
+
+/* 마감 시간이 지난 모임은 누가 열든 자동으로 자리배치 (중복 배치는 트랜잭션이 막음) */
+const tried = new Set();
+function autoSeat(){ const m = S.meetup; if (m && !m.seats && isPast(m) && !tried.has(m.id)){ tried.add(m.id); S.api.assignSeatsIfNeeded(m.id).catch(e=>{ tried.delete(m.id); console.error(e); }); } }
+function autoSeatAll(){ S.meetups.forEach(m => { if (!m.seats && isPast(m) && !ended(m) && !tried.has(m.id)){ tried.add(m.id); S.api.assignSeatsIfNeeded(m.id).catch(()=>tried.delete(m.id)); } }); }
+
+/* ---------- 렌더 ---------- */
+function topbar(){
+  const back = S.view !== "list" ? `<button class="back" data-act="home" aria-label="목록으로">‹</button>` : "";
+  const initial = (S.name || "?").slice(0,1);
+  $("#topbar").innerHTML = `${back}<button class="logo" data-act="home"><span class="suit">♠</span>${esc(CFG.clubName)} 모임</button><span class="spacer"></span>
+    <button class="me" data-act="nick"><span class="dot">${esc(initial)}</span>${esc(S.name || "닉네임 설정")}</button>`;
+}
+
+function statusPill(m, mine){
+  const f = m.formedAt && !ended(m) ? `<span class="pill open">성사</span>` : "";
+  let p = f + (ended(m) ? `<span class="pill past">종료</span>` : isPast(m) ? (m.seats ? `<span class="pill closed">자리배치 완료</span>` : `<span class="pill closed">마감</span>`) : `<span class="pill open">모집중</span>`);
+  return (mine ? `<span class="pill mine">${mine}</span>` : "") + p;
+}
+
+function renderList(){
+  if (!S.meetups.length) return `<div class="empty"><div class="big">♠♥♣♦</div><p>아직 올라온 모임이 없어요.<br>오른쪽 아래 <b>모임 만들기</b>로 첫 모임을 열어보세요.</p></div>`;
+  const up = S.meetups.filter(m=>!ended(m)), old = S.meetups.filter(ended).slice(0,10);
+  const card = m => {
+    const cnt = m._count;
+    return `<button class="card" data-go="${esc(m.id)}">
+      <div class="row"><h3>${esc(m.title)}</h3>${statusPill(m, m.hostUid===S.api.uid ? "내 모임" : "")}</div>
+      <div class="meta"><span><b>${fmtDate(m.date)}</b></span>${m.location ? `<span>${esc(m.location)}</span>` : ""}<span>최소 <b class="num">${minOf(m)}</b> · 정원 <b class="num">${m.capacity}</b>명</span></div>
+      <div class="meta">${isPast(m) ? `<span>모집 마감됨 · ${fmtDate(m.deadline)}</span>` : `<span>마감까지 <b class="num" data-left="${m.deadline}">${left(m.deadline)}</b></span>`}<span>모임장 ${esc(m.hostName||"")}</span></div>
+    </button>`;
+  };
+  return `<h2 class="sec">다가오는 모임 <span class="n">${up.length}</span></h2><div class="list">${up.map(card).join("") || `<div class="empty">예정된 모임이 없어요.</div>`}</div>
+    ${old.length ? `<h2 class="sec">지난 모임</h2><div class="list">${old.map(card).join("")}</div>` : ""}
+    <button class="btn primary fab" data-act="new">＋ 모임 만들기</button>`;
+}
+
+function renderNew(){
+  const now = Date.now(); const d = new Date(now + 2*86400e3); d.setHours(19,0,0,0);
+  const dl = d.getTime() - 3*3600e3;
+  return `<h2 class="sec">새 모임 열기</h2>
+  <form class="form" id="newForm">
+    <label class="f">모임 이름<input type="text" id="f-title" maxlength="40" required placeholder="예: 금요 정기 토너먼트"></label>
+    <div class="two">
+      <label class="f">모임 일시<input type="datetime-local" id="f-date" required value="${toLocalInput(d.getTime())}"></label>
+      <label class="f">모집 마감<input type="datetime-local" id="f-deadline" required value="${toLocalInput(dl)}"><small>마감 시각에 자리배치가 자동으로 됩니다</small></label>
+    </div>
+    <label class="f">장소<input type="text" id="f-loc" maxlength="40" placeholder="예: 연남동 ○○"></label>
+    <div class="two">
+      <label class="f">최소 인원<input type="number" id="f-min" min="2" max="36" value="${CFG.defaultMinPlayers || 6}" required inputmode="numeric"><small>이 인원이 모이면 신청자 모두에게 성사 알림</small></label>
+      <label class="f">정원<input type="number" id="f-cap" min="2" max="36" value="12" required inputmode="numeric"><small>${PER_TABLE}명 넘으면 테이블을 나눠 배치</small></label>
+    </div>
+    <label class="f">안내 메모 <small>바이인, 블라인드, 준비물 등</small><textarea id="f-memo" maxlength="300" placeholder="바이인 3만원 / 리바이 1회"></textarea></label>
+    <label class="check"><input type="checkbox" id="f-join" checked> 나도 바로 참여 신청</label>
+    <p class="err" id="f-err" hidden></p>
+    <button class="btn primary block" type="submit" ${S.busy?"disabled":""}>모임 올리기</button>
+  </form>`;
+}
+
+function seatPositions(n){
+  // 딜러는 위쪽 가운데, 1번부터 시계방향
+  return Array.from({length:n}, (_, i) => {
+    const a = (-90 + (i+1) * 360/(n+1)) * Math.PI/180;
+    return { x: 50 + 44*Math.cos(a), y: 50 + 42*Math.sin(a) };
+  });
+}
+function renderSeating(m){
+  const me = S.api.uid;
+  return `<div class="tables">${m.seats.tables.map(t => {
+    const pos = seatPositions(t.seats.length);
+    return `<div class="tbl"><h4><span>${m.seats.tables.length>1 ? `${t.table}번 테이블` : "테이블"}</span><span class="num">${t.seats.length}명</span></h4>
+      <div class="oval" role="img" aria-label="자리배치도"><div class="felt">${esc(CFG.clubName)}</div><span class="dealer">딜러</span>
+      ${t.seats.map((s,i)=>`<div class="seat ${s.uid===me?"me":""}" style="left:${pos[i].x}%;top:${pos[i].y}%"><span class="c">${s.seat}</span><span class="l">${esc(s.name)}</span></div>`).join("")}
+      </div>
+      <div class="seatlist">${t.seats.map(s=>`<div class="${s.uid===me?"me":""}"><span class="num">${s.seat}</span><span>${esc(s.name)}</span></div>`).join("")}</div>
+    </div>`; }).join("")}</div>
+    <p class="muted" style="font-size:12.5px;margin:8px 0 0">${fmtDate(m.seats.assignedAt)} 무작위 배치</p>`;
+}
+
+function renderDetail(){
+  const m = S.meetup;
+  if (m === undefined) return `<p class="muted">불러오는 중…</p>`;
+  if (m === null) return `<div class="empty">모임이 삭제됐거나 링크가 잘못됐어요.<br><br><button class="btn" data-act="home">목록으로</button></div>`;
+  const me = S.api.uid, host = m.hostUid === me, past = isPast(m);
+  const { confirmed, waiting } = splitEntries(m, S.entries);
+  const mineIdx = confirmed.findIndex(e=>e.uid===me), waitIdx = waiting.findIndex(e=>e.uid===me);
+  const joined = mineIdx >= 0 || waitIdx >= 0;
+  const pct = Math.min(100, Math.round(confirmed.length / m.capacity * 100));
+  let mySeat = null; if (m.seats) for (const t of m.seats.tables) for (const s of t.seats) if (s.uid===me) mySeat = { t: t.table, s: s.seat, multi: m.seats.tables.length>1 };
+
+  let action;
+  if (!past){
+    action = joined
+      ? `<div class="status ${mineIdx>=0?"ok":"wait"}">${mineIdx>=0 ? `참여 확정 · ${mineIdx+1}번째 신청` : `대기 ${waitIdx+1}번 · 누가 취소하면 자동으로 확정돼요`}</div>
+         <button class="btn danger block" data-act="cancel" ${S.busy?"disabled":""}>신청 취소</button>`
+      : `<label class="f">한 줄 메모 <small>선택 · 예: 30분 늦어요</small><input type="text" id="memo" maxlength="60" value="${esc(S.memoDraft)}"></label>
+         <button class="btn ${confirmed.length>=m.capacity?"":"primary"} block" data-act="join" ${S.busy?"disabled":""}>${confirmed.length>=m.capacity ? "대기자로 신청" : `${esc(S.name||"")} 참여 신청`}</button>`;
+  } else {
+    action = mySeat ? `<div class="status ok">내 자리: ${mySeat.multi?`${mySeat.t}번 테이블 `:""}<span class="num">${mySeat.s}</span>번</div>`
+      : joined ? `<div class="status wait">${m.seats ? "대기자로 마감됐어요" : "자리배치 중…"}</div>`
+      : `<div class="status muted">모집이 마감됐어요</div>`;
+    if (joined) action += `<p class="muted" style="margin:0;font-size:13px">마감 후 취소는 모임장에게 말해주세요.</p>`;
+  }
+
+  // 성사 상태
+  const min = minOf(m), total = S.entries.length, need = Math.max(0, min - total);
+  const chips = Array.from({length:min}, (_, i) => `<i class="${i < total ? "on" : ""}"></i>`).join("");
+  const formedBox = need === 0
+    ? `<div class="formed yes"><span>모임 성사! 최소 ${min}명 넘었어요</span><span class="chips" aria-hidden="true">${chips}</span></div>`
+    : `<div class="formed no"><span>성사까지 <b class="num">${need}</b>명 더 필요 (최소 ${min}명)</span><span class="chips" aria-hidden="true">${chips}</span></div>`;
+
+  // 알림 켜기
+  let push = "";
+  if (!ended(m) && (joined || host)){
+    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent), standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+    if (S.api.demo) push = `<div class="pushrow">체험 모드에서는 폰 알림이 가지 않아요.</div>`;
+    else if (!S.api.pushSupported()) push = `<div class="pushrow">${isIOS && !standalone ? "아이폰은 Safari 공유 버튼 → <b>홈 화면에 추가</b> 후, 그 아이콘으로 열어야 알림을 받을 수 있어요." : "이 브라우저에서는 폰 알림을 받을 수 없어요."}</div>`;
+    else if (Notification.permission === "granted") push = `<div class="pushrow">🔔 알림 켜짐 · 모임이 성사되면 알려드려요</div>`;
+    else if (Notification.permission === "denied") push = `<div class="pushrow">알림이 차단돼 있어요. 브라우저 설정에서 이 사이트 알림을 허용해 주세요.</div>`;
+    else push = `<div class="pushrow"><button class="btn sm" data-act="push">🔔 알림 켜기</button><span>성사되면 폰으로 알려드려요</span></div>`;
+  }
+
+  // 추첨 기록 (모임장 전용)
+  let drawSec = "";
+  if (host && m.seats && S.draw && S.draw.steps){
+    const d = S.draw;
+    const who = d.byHost ? "모임장(나)" : `${d.byName || "멤버"}님 폰에서 자동`;
+    drawSec = `<h2 class="sec">추첨 기록 <span class="n">${d.steps.length}</span><span class="spacer" style="flex:1"></span><button class="btn sm ghost" data-act="toggle-draw">${S.showDraw ? "접기" : "펼치기"}</button></h2>
+      <p class="drawhead">${fmtDate(d.drawnAt)} · ${esc(who)} 추첨 · 신청 순서대로 남은 자리 카드를 한 장씩 뽑음 · 모임장에게만 보여요</p>
+      ${S.showDraw ? `<ol class="drawlog">${d.steps.map(s => `<li><span class="k">${s.n}</span><span class="who">${esc(s.name)}<small>신청 ${s.n}번</small></span><span class="to">${d.multi ? `${s.table}T-` : ""}${s.seat}번</span></li>`).join("")}</ol>` : ""}`;
+  }
+
+  const li = (e, i) => `<li><span class="ord">${i+1}</span><span class="nm">${esc(e.name)}</span>${e.uid===me?`<span class="you">나</span>`:""}<span class="memo">${esc(e.memo)}</span>
+    ${host && e.uid!==me ? `<button class="btn sm ghost x" data-act="kick" data-uid="${esc(e.uid)}" aria-label="${esc(e.name)} 신청 취소">빼기</button>` : ""}</li>`;
+
+  let conf = "";
+  if (S.confirm){
+    const c = S.confirm;
+    conf = `<div class="confirm"><div>${esc(c.text)}</div><div class="hostbox"><button class="btn sm red" data-act="confirm-yes">${esc(c.yes)}</button><button class="btn sm" data-act="confirm-no">그만두기</button></div></div>`;
+  }
+
+  return `<section class="hero">
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${statusPill(m, host?"내 모임":"")}</div>
+    <h1>${esc(m.title)}</h1>
+    <dl class="facts"><dt>일시</dt><dd>${fmtDate(m.date)}</dd>${m.location?`<dt>장소</dt><dd>${esc(m.location)}</dd>`:""}<dt>모임장</dt><dd>${esc(m.hostName||"")}</dd><dt>모집 마감</dt><dd>${fmtDate(m.deadline)}</dd></dl>
+    ${m.memo ? `<div class="note">${esc(m.memo)}</div>` : ""}
+    ${!past ? `<div class="clock">마감까지 <span class="num" data-left="${m.deadline}">${left(m.deadline)}</span></div>` : ""}
+    ${formedBox}
+    <div><div class="meta" style="justify-content:space-between;margin-bottom:6px"><span>확정 <b class="num">${confirmed.length}</b> / ${m.capacity}</span><span>대기 <b class="num">${waiting.length}</b></span></div><div class="bar"><i style="width:${pct}%"></i></div></div>
+    <button class="btn sm" data-act="share">링크 복사해서 단톡에 공유</button>
+  </section>
+  <section class="action">${action}${push}</section>
+
+  ${m.seats ? `<h2 class="sec">자리배치</h2>${renderSeating(m)}` : past ? `<h2 class="sec">자리배치</h2><div class="empty">자리배치 중…</div>` : ""}
+
+  <h2 class="sec">참여 확정 <span class="n">${confirmed.length}</span></h2>
+  ${confirmed.length ? `<ul class="people">${confirmed.map(li).join("")}</ul>` : `<div class="empty">첫 번째로 신청해 보세요.</div>`}
+  ${waiting.length ? `<h2 class="sec">대기자 <span class="n">${waiting.length}</span></h2><ul class="people wait">${waiting.map((e,i)=>li(e,i)).join("")}</ul>` : ""}
+
+  ${host ? `<h2 class="sec">모임장 메뉴</h2><div class="hostbox">
+     ${!past ? `<button class="btn sm" data-act="close">지금 마감하고 자리배치</button>` : `<button class="btn sm" data-act="reseat">자리 다시 뽑기</button>`}
+     <button class="btn sm danger" data-act="delete">모임 삭제</button></div>${conf}${drawSec}` : ""}`;
+}
+
+function render(){
+  topbar();
+  const app = $("#app");
+  const active = document.activeElement; const focusId = active && active.id; const caret = active && active.selectionStart;
+  app.innerHTML = S.view === "new" ? renderNew() : S.view === "detail" ? renderDetail() : renderList();
+  if (focusId){ const el = document.getElementById(focusId); if (el){ el.focus(); try { el.setSelectionRange(caret, caret); } catch {} } }
+}
+
+/* ---------- 닉네임 ---------- */
+function askName(then){
+  $("#overlay").innerHTML = `<div class="sheet-bg"><form class="sheet" id="nickForm">
+    <h3>닉네임</h3><p class="muted" style="margin:0;font-size:14px">신청 명단과 자리배치에 이 이름이 보여요.</p>
+    <input type="text" id="nick" maxlength="12" required value="${esc(S.name)}" placeholder="예: 진호">
+    <button class="btn primary block" type="submit">저장</button>
+    ${S.name ? `<button class="btn ghost block" type="button" data-act="nick-close">닫기</button>` : ""}</form></div>`;
+  const f = $("#nickForm"); setTimeout(()=>$("#nick").focus(), 50);
+  f.onsubmit = e => { e.preventDefault(); const v = $("#nick").value.trim(); if (!v) return; S.name = v; store.set("nickname", v); $("#overlay").innerHTML = ""; render(); then && then(); };
+}
+const needName = fn => S.name ? fn() : askName(fn);
+
+/* ---------- 이벤트 ---------- */
+async function run(fn, ok){ if (S.busy) return; S.busy = true; render(); try { await fn(); if (ok) toast(ok); } catch(e){ console.error(e); toast(errMsg(e)); } finally { S.busy = false; render(); } }
+
+document.addEventListener("click", e => {
+  const g = e.target.closest("[data-go]"); if (g){ go("?m=" + encodeURIComponent(g.dataset.go)); return; }
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const a = b.dataset.act, id = S.id;
+  if (a === "home") go(location.pathname);
+  else if (a === "nick") askName();
+  else if (a === "nick-close") $("#overlay").innerHTML = "";
+  else if (a === "new") needName(()=>go(location.pathname + "#new"));
+  else if (a === "push") S.api.enablePush().then(()=>{ toast("알림을 켰어요"); render(); }, e=>{ toast(errMsg(e)); render(); });
+  else if (a === "toggle-draw"){ S.showDraw = !S.showDraw; render(); }
+  else if (a === "join"){
+    // 신청 버튼을 누르는 순간(사용자 동작 안에서) 알림 권한도 함께 요청
+    if (!S.api.demo && S.api.pushSupported() && Notification.permission === "default") S.api.enablePush().then(render, ()=>render());
+    needName(()=>run(()=>S.api.join(id, S.name, (S.memoDraft||"").trim()).then(()=>{ S.memoDraft=""; }), "신청 완료!"));
+  }
+  else if (a === "cancel") run(()=>S.api.cancel(id), "신청을 취소했어요");
+  else if (a === "share"){
+    const url = linkFor(id), m = S.meetup, text = `[${CFG.clubName}] ${m.title}\n${fmtDate(m.date)}${m.location?" · "+m.location:""}\n참여신청 👉 ${url}`;
+    if (navigator.share) navigator.share({ title: m.title, text, url }).catch(()=>{});
+    else navigator.clipboard.writeText(text).then(()=>toast("링크를 복사했어요"), ()=>toast(url));
+  }
+  else if (a === "close"){ S.confirm = { text: "지금 모집을 마감하고 자리를 뽑을까요?", yes: "마감", fn: ()=>S.api.closeNow(id) }; render(); }
+  else if (a === "reseat"){ S.confirm = { text: "자리를 새로 뽑으면 지금 배치는 사라져요.", yes: "다시 뽑기", fn: ()=>S.api.reseat(id), ok: "자리를 다시 뽑았어요" }; render(); }
+  else if (a === "delete"){ S.confirm = { text: "모임과 신청 명단이 모두 삭제돼요.", yes: "삭제", fn: async()=>{ await S.api.deleteMeetup(id); go(location.pathname); } }; render(); }
+  else if (a === "kick"){ const who = b.dataset.uid, n = S.entries.find(x=>x.uid===who)?.name || ""; S.confirm = { text: `${n}님의 신청을 취소할까요?`, yes: "빼기", fn: ()=>S.api.removeEntry(id, who) }; render(); }
+  else if (a === "confirm-no"){ S.confirm = null; render(); }
+  else if (a === "confirm-yes"){ const c = S.confirm; S.confirm = null; run(c.fn, c.ok); }
+});
+document.addEventListener("input", e => { if (e.target.id === "memo") S.memoDraft = e.target.value; });
+document.addEventListener("submit", e => {
+  if (e.target.id !== "newForm") return; e.preventDefault();
+  const v = id => $(id).value.trim(); const err = $("#f-err");
+  const date = new Date(v("#f-date")).getTime(), deadline = new Date(v("#f-deadline")).getTime(), capacity = parseInt(v("#f-cap"), 10), minPlayers = parseInt(v("#f-min"), 10);
+  const bad = !v("#f-title") ? "모임 이름을 적어주세요" : isNaN(date) || isNaN(deadline) ? "날짜를 확인해 주세요"
+    : deadline <= Date.now() ? "모집 마감은 지금 이후여야 해요" : deadline > date ? "모집 마감은 모임 시작 전이어야 해요"
+    : !(capacity >= 2 && capacity <= 36) ? "정원은 2~36명"
+    : !(minPlayers >= 2 && minPlayers <= capacity) ? "최소 인원은 2명 이상, 정원 이하로 정해주세요" : "";
+  if (bad){ err.textContent = bad; err.hidden = false; return; }
+  const joinToo = $("#f-join").checked;
+  if (!S.api.demo && S.api.pushSupported() && Notification.permission === "default") S.api.enablePush().catch(()=>{});
+  needName(()=>run(async () => {
+    const id = await S.api.createMeetup({ title: v("#f-title"), location: v("#f-loc"), memo: $("#f-memo").value.trim(), capacity, minPlayers, date, deadline, hostName: S.name });
+    if (joinToo) await S.api.join(id, S.name, "");
+    history.replaceState(null, "", "?m=" + encodeURIComponent(id)); route();
+  }, "모임을 올렸어요"));
+});
+window.addEventListener("popstate", route);
+
+/* 남은 시간 표시 + 마감 순간 자동 배치 */
+setInterval(() => {
+  document.querySelectorAll("[data-left]").forEach(el => { el.textContent = left(+el.dataset.left); });
+  if (S.view === "detail" && S.meetup && !S.meetup.seats && isPast(S.meetup)){ if (!tried.has(S.meetup.id)) { autoSeat(); render(); } }
+  if (S.view === "list" && S.meetups.some(m => !m.seats && isPast(m) && !ended(m) && !tried.has(m.id))) { autoSeatAll(); render(); }
+}, 1000);
+
+/* ---------- 시작 ---------- */
+(async () => {
+  const configured = CFG.firebase && CFG.firebase.apiKey && !CFG.firebase.apiKey.startsWith("여기에");
+  try { S.api = configured ? await firebaseStore(CFG.firebase) : demoStore(); }
+  catch (e){ console.error(e); $("#app").innerHTML = `<div class="empty">서버에 연결하지 못했어요.<br><small>${esc(e.message)}</small></div>`; return; }
+  if (S.api.demo) $("#demo").hidden = false;
+  route();
+  S.api.refreshPush();  // 이미 알림을 허용한 기기는 토큰을 최신으로 갱신
+  if (!S.name) askName();
+})();
+})();
+</script>
+</body>
+</html>
