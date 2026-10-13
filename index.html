@@ -194,6 +194,7 @@ label.f small{font-weight:400;color:var(--muted)}
 </head>
 <body>
 <header class="top"><div class="wrap" id="topbar"></div></header>
+<div id="inapp" hidden class="demo"><div class="wrap" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:0">카톡 안에서는 신청·알림이 안 될 수 있어요.</span><button class="btn sm" data-act="external" style="color:var(--ink)">기본 브라우저로 열기</button></div></div>
 <div id="demo" hidden class="demo"><div class="wrap">체험 모드: 데이터가 이 기기에만 저장됩니다. Firebase 설정을 넣으면 멤버 모두와 공유돼요.</div></div>
 <main class="wrap" id="app"><p class="muted">불러오는 중…</p></main>
 <div id="overlay"></div>
@@ -203,7 +204,11 @@ label.f small{font-weight:400;color:var(--muted)}
 "use strict";
 const CFG = window.APP_CONFIG;
 const PER_TABLE = CFG.seatsPerTable || 12;
-const APP_VERSION = "10.13-c";
+const APP_VERSION = "10.13-d";
+const UA = navigator.userAgent;
+const IS_IOS = /iPhone|iPad|iPod/.test(UA);
+const IN_APP = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER\(inapp|Line\//i.test(UA);
+const IS_KAKAO = /KAKAOTALK/i.test(UA);
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const store = { get(k){ try { return localStorage.getItem(k); } catch { return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch {} } };
@@ -310,6 +315,21 @@ async function firebaseStore(cfg){
   const ecol = id => collection(db, "meetups", id, "entries");
   const dref = id => doc(db, "meetups", id, "private", "draw");
   const fail = e => console.error(e);
+  // 쓰기 직전 로그인 확인 + 토큰 새로 받기 (카톡 등 인앱 브라우저 대비)
+  async function fresh(force){
+    if (!auth.currentUser) await au.signInAnonymously(auth);
+    await auth.currentUser.getIdToken(!!force);
+    return auth.currentUser.uid;
+  }
+  async function guarded(fn){
+    try { await fresh(false); return await fn(); }
+    catch (e){
+      if (!String(e && e.code).includes("permission")) throw e;
+      await fresh(true);                       // 토큰을 강제로 새로 받아 한 번 더 시도
+      try { return await fn(); }
+      catch (e2){ try { e2.authed = !!auth.currentUser; } catch {} throw e2; }
+    }
+  }
 
   /* --- 푸시 알림 (FCM) --- */
   const pushSupported = () => "Notification" in window && "serviceWorker" in navigator && "PushManager" in window && !!CFG.vapidKey && !CFG.vapidKey.startsWith("여기에");
@@ -329,7 +349,7 @@ async function firebaseStore(cfg){
   }
 
   return {
-    demo: false, uid: user.uid,
+    demo: false, get uid(){ return (auth.currentUser && auth.currentUser.uid) || user.uid; },
     watchMeetups(cb){ return onSnapshot(query(collection(db,"meetups"), orderBy("date","desc"), limit(40)), s => cb(s.docs.map(toM)), fail); },
     watchMeetup(id, cb){ return onSnapshot(mref(id), s => cb(s.exists() ? toM(s) : null), fail); },
     watchEntries(id, cb){ return onSnapshot(ecol(id), s => cb(s.docs.map(toE)), fail); },
@@ -337,13 +357,13 @@ async function firebaseStore(cfg){
     async getEntries(id){ return (await getDocs(ecol(id))).docs.map(toE); },
     async createMeetup(m){
       const ref = doc(collection(db,"meetups"));
-      await setDoc(ref, { title:m.title, location:m.location, memo:m.memo, capacity:m.capacity, minPlayers:m.minPlayers, hostName:m.hostName,
+      await guarded(() => setDoc(ref, { title:m.title, location:m.location, memo:m.memo, capacity:m.capacity, minPlayers:m.minPlayers, hostName:m.hostName,
         date: Timestamp.fromMillis(m.date), deadline: Timestamp.fromMillis(m.deadline), hostUid: user.uid, seats: null,
-        appUrl: location.origin + location.pathname, createdAt: serverTimestamp() });
+        appUrl: location.origin + location.pathname, createdAt: serverTimestamp(), hostUid: auth.currentUser.uid }));
       return ref.id;
     },
-    async join(id, name, memo){ await setDoc(doc(ecol(id), user.uid), { name, memo, createdAt: serverTimestamp() }); },
-    async cancel(id){ await deleteDoc(doc(ecol(id), user.uid)); },
+    async join(id, name, memo){ await guarded(() => setDoc(doc(ecol(id), auth.currentUser.uid), { name, memo, createdAt: serverTimestamp() })); },
+    async cancel(id){ await guarded(() => deleteDoc(doc(ecol(id), auth.currentUser.uid))); },
     async removeEntry(id, who){ await deleteDoc(doc(ecol(id), who)); },
     async closeNow(id){ await updateDoc(mref(id), { deadline: Timestamp.now() }); },
     async assignSeatsIfNeeded(id){
@@ -387,7 +407,9 @@ const ended = m => Date.now() > m.date + 12*3600e3;
 function toast(msg, ms){ const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t); setTimeout(()=>t.remove(), ms || 2400); }
 function errMsg(e){
   const c = String((e && e.code) || ""), step = e && e.step ? `${e.step} 실패 · ` : "";
-  if (c.includes("permission")) return `${step}권한이 없어요 [${c}]`;
+  if (c.includes("permission")) return e.authed === false || IN_APP
+    ? `${step}로그인이 안 됐어요. 카톡 말고 ${IS_IOS ? "Safari" : "크롬"}에서 열어주세요 [${c}]`
+    : `${step}권한이 없어요 (마감됐거나 본인 것이 아님) [${c}]`;
   return `${step}${e?.message || "잠시 후 다시 시도해 주세요"}${c ? ` [${c}]` : ""}`;
 }
 const tag = (step, p) => p.catch(e => { try { e.step = step; } catch {} throw e; });
@@ -609,6 +631,7 @@ document.addEventListener("click", e => {
   const a = b.dataset.act, id = S.id;
   if (a === "home") go(location.pathname);
   else if (a === "nick") askName();
+  else if (a === "external") openExternal();
   else if (a === "nick-close") $("#overlay").innerHTML = "";
   else if (a === "new") needName(()=>go(location.pathname + "#new"));
   else if (a === "push") S.api.enablePush().then(()=>{ toast("알림을 켰어요"); render(); }, e=>{ toast(errMsg(e)); render(); });
@@ -616,7 +639,7 @@ document.addEventListener("click", e => {
   else if (a === "join"){
     // 신청 버튼을 누르는 순간(사용자 동작 안에서) 알림 권한도 함께 요청
     if (!S.api.demo && S.api.pushSupported() && Notification.permission === "default") S.api.enablePush().then(render, ()=>render());
-    needName(()=>run(()=>S.api.join(id, S.name, (S.memoDraft||"").trim()).then(()=>{ S.memoDraft=""; }), "신청 완료!"));
+    needName(()=>run(()=>tag("참여 신청", S.api.join(id, S.name, (S.memoDraft||"").trim())).then(()=>{ S.memoDraft=""; }), "신청 완료!"));
   }
   else if (a === "cancel") run(()=>S.api.cancel(id), "신청을 취소했어요");
   else if (a === "share"){
@@ -658,12 +681,22 @@ setInterval(() => {
   if (S.view === "list" && S.meetups.some(m => !m.seats && isPast(m) && !ended(m) && !tried.has(m.id))) { autoSeatAll(); render(); }
 }, 1000);
 
+function openExternal(){
+  const url = location.href;
+  if (IS_KAKAO){ location.href = "kakaotalk://web/openExternal?url=" + encodeURIComponent(url); return; }
+  if (!IS_IOS){ location.href = "intent://" + url.replace(/^https?:\/\//, "") + "#Intent;scheme=https;package=com.android.chrome;end"; return; }
+  navigator.clipboard?.writeText(url).then(()=>toast("주소를 복사했어요. Safari에 붙여넣어 주세요", 5000), ()=>toast(url, 8000));
+}
+// 카톡 인앱 브라우저면 처음 한 번 자동으로 기본 브라우저로 넘김
+if (IS_KAKAO && !store.get("kakao-ext-tried")){ store.set("kakao-ext-tried", "1"); setTimeout(openExternal, 300); }
+
 /* ---------- 시작 ---------- */
 (async () => {
   const configured = CFG.firebase && CFG.firebase.apiKey && !CFG.firebase.apiKey.startsWith("여기에");
   try { S.api = configured ? await firebaseStore(CFG.firebase) : demoStore(); }
   catch (e){ console.error(e); $("#app").innerHTML = `<div class="empty">서버에 연결하지 못했어요.<br><small>${esc(e.message)}</small></div>`; return; }
   if (S.api.demo) $("#demo").hidden = false;
+  if (IN_APP) $("#inapp").hidden = false;
   route();
   S.api.refreshPush();  // 이미 알림을 허용한 기기는 토큰을 최신으로 갱신
   if (!S.name) askName();
