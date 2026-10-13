@@ -431,7 +431,8 @@ function statusPill(m, mine){
 }
 
 function renderList(){
-  if (!S.meetups.length) return `<div class="empty"><div class="big">♠♥♣♦</div><p>아직 올라온 모임이 없어요.<br>오른쪽 아래 <b>모임 만들기</b>로 첫 모임을 열어보세요.</p></div>`;
+  const fab = `<button class="btn primary fab" data-act="new">＋ 모임 만들기</button>`;
+  if (!S.meetups.length) return `<div class="empty"><div class="big">♠♥♣♦</div><p>아직 올라온 모임이 없어요.<br>오른쪽 아래 <b>모임 만들기</b>로 첫 모임을 열어보세요.</p></div>${fab}`;
   const up = S.meetups.filter(m=>!ended(m)), old = S.meetups.filter(ended).slice(0,10);
   const card = m => {
     const cnt = m._count;
@@ -443,7 +444,7 @@ function renderList(){
   };
   return `<h2 class="sec">다가오는 모임 <span class="n">${up.length}</span></h2><div class="list">${up.map(card).join("") || `<div class="empty">예정된 모임이 없어요.</div>`}</div>
     ${old.length ? `<h2 class="sec">지난 모임</h2><div class="list">${old.map(card).join("")}</div>` : ""}
-    <button class="btn primary fab" data-act="new">＋ 모임 만들기</button>`;
+    ${fab}`;
 }
 
 function renderNew(){
