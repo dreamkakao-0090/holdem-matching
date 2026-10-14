@@ -22,7 +22,8 @@ window.APP_CONFIG = {
   seatsPerTable: 12,
   defaultMinPlayers: 6,
   lateRegMinutes: 64,
-  fixedLocation: "덤불",   // 모임 장소 고정 (비우면 직접 입력)   // 레이트 레지 마감: 모임 시작 후 64분 (firestore.rules 의 64 와 같이 바꿔야 함)
+  fixedLocation: "덤불",
+  rankingUrl: "https://dumbulholdem-rank.web.app/",   // '랭킹 입력하기' 버튼이 여는 주소   // 모임 장소 고정 (비우면 직접 입력)   // 레이트 레지 마감: 모임 시작 후 64분 (firestore.rules 의 64 와 같이 바꿔야 함)
   // Firebase 콘솔 > 프로젝트 설정 > 클라우드 메시징 > 웹 푸시 인증서 > 키 쌍
   vapidKey: "BH2nMdvXhuqlDuVo4eo53RRYWRbqA0xJFIHoMft0J0xSLByQOvXdJ1la7IORkPfB-A-caJZEvErxbt8Y0WnOK-w",
   firebase: {
@@ -227,7 +228,7 @@ button.seat{background:none;border:0;padding:0;font:inherit;color:inherit}
 "use strict";
 const CFG = window.APP_CONFIG;
 const PER_TABLE = CFG.seatsPerTable || 12;
-const APP_VERSION = "10.14-a";
+const APP_VERSION = "10.14-b";
 const UA = navigator.userAgent;
 const IS_IOS = /iPhone|iPad|iPod/.test(UA);
 const IN_APP = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER\(inapp|Line\//i.test(UA);
@@ -674,7 +675,8 @@ function renderRanking(m, R, host){
   const ctl = host ? `<div class="hostbox">
       ${!R.done ? `<button class="btn sm ${S.rankMode?"red":""}" data-act="rank-mode">${S.rankMode ? "탈락 체크 끝내기" : (R.out.length ? "탈락 체크 계속하기" : "탈락 체크 시작")}</button>` : ""}
       ${R.out.length ? `<button class="btn sm" data-act="rank-undo">↶ 마지막 탈락 되돌리기</button>` : ""}
-      ${R.out.length ? `<button class="btn sm danger" data-act="rank-reset">순위 초기화</button>` : ""}</div>` : "";
+      ${R.out.length ? `<button class="btn sm danger" data-act="rank-reset">순위 초기화</button>` : ""}
+      ${CFG.rankingUrl ? `<a class="btn sm ${R.done ? "primary" : ""}" href="${esc(CFG.rankingUrl)}" target="_blank" rel="noopener" style="text-decoration:none">랭킹 입력하기 ↗</a>` : ""}</div>` : "";
   return `<h2 class="sec">순위</h2><div class="rankbox">${body}${ctl}${conf}</div>`;
 }
 
