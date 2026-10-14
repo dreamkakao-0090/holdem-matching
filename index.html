@@ -228,7 +228,7 @@ button.seat{background:none;border:0;padding:0;font:inherit;color:inherit}
 "use strict";
 const CFG = window.APP_CONFIG;
 const PER_TABLE = CFG.seatsPerTable || 12;
-const APP_VERSION = "10.14-b";
+const APP_VERSION = "10.14-c";
 const UA = navigator.userAgent;
 const IS_IOS = /iPhone|iPad|iPod/.test(UA);
 const IN_APP = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER\(inapp|Line\//i.test(UA);
@@ -610,7 +610,7 @@ function renderNew(){
   const dl = d.getTime() - 3*3600e3;
   return `<h2 class="sec">새 모임 열기</h2>
   <form class="form" id="newForm">
-    <label class="f">모임 이름<input type="text" id="f-title" maxlength="40" required placeholder="예: 금요 정기 토너먼트"></label>
+    <label class="f">모임 이름<input type="text" id="f-title" maxlength="40" required placeholder="10/31(금) 19:00 모임"></label>
     <div class="two">
       <label class="f">모임 일시<input type="datetime-local" id="f-date" required value="${toLocalInput(d.getTime())}"></label>
       <label class="f">정시 마감<input type="datetime-local" id="f-deadline" required value="${toLocalInput(dl)}"><small>이때 최소 인원이 모이면 자리배치, 이후 모임 시작 ${CFG.lateRegMinutes || 64}분 뒤까지 레이트 레지(빈자리 배치)</small></label>
@@ -620,7 +620,7 @@ function renderNew(){
       <label class="f">최소 인원<input type="number" id="f-min" min="2" max="36" value="${CFG.defaultMinPlayers || 6}" required inputmode="numeric"><small>모이면 성사 알림, 취소로 모자라면 미달 알림</small></label>
       <label class="f">정원<input type="number" id="f-cap" min="2" max="36" value="12" required inputmode="numeric"><small>${PER_TABLE}명 넘으면 테이블을 나눠 배치</small></label>
     </div>
-    <label class="f">안내 메모 <small>바이인, 블라인드, 준비물 등</small><textarea id="f-memo" maxlength="300" placeholder="바이인 3만원 / 리바이 1회"></textarea></label>
+    <label class="f">안내 메모<textarea id="f-memo" maxlength="300"></textarea></label>
     <label class="check"><input type="checkbox" id="f-join" checked> 나도 바로 참여 신청</label>
     <p class="err" id="f-err" hidden></p>
     <button class="btn primary block" type="submit" ${S.busy?"disabled":""}>모임 올리기</button>
