@@ -21,7 +21,8 @@ window.APP_CONFIG = {
   clubName: "덤불홀덤",
   seatsPerTable: 12,
   defaultMinPlayers: 6,
-  lateRegMinutes: 64,   // 레이트 레지 마감: 모임 시작 후 64분 (firestore.rules 의 64 와 같이 바꿔야 함)
+  lateRegMinutes: 64,
+  fixedLocation: "덤불",   // 모임 장소 고정 (비우면 직접 입력)   // 레이트 레지 마감: 모임 시작 후 64분 (firestore.rules 의 64 와 같이 바꿔야 함)
   // Firebase 콘솔 > 프로젝트 설정 > 클라우드 메시징 > 웹 푸시 인증서 > 키 쌍
   vapidKey: "BH2nMdvXhuqlDuVo4eo53RRYWRbqA0xJFIHoMft0J0xSLByQOvXdJ1la7IORkPfB-A-caJZEvErxbt8Y0WnOK-w",
   firebase: {
@@ -226,7 +227,7 @@ button.seat{background:none;border:0;padding:0;font:inherit;color:inherit}
 "use strict";
 const CFG = window.APP_CONFIG;
 const PER_TABLE = CFG.seatsPerTable || 12;
-const APP_VERSION = "10.13-i";
+const APP_VERSION = "10.14-a";
 const UA = navigator.userAgent;
 const IS_IOS = /iPhone|iPad|iPod/.test(UA);
 const IN_APP = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER\(inapp|Line\//i.test(UA);
@@ -234,6 +235,12 @@ const IS_KAKAO = /KAKAOTALK/i.test(UA);
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const store = { get(k){ try { return localStorage.getItem(k); } catch { return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch {} } };
+// 닉네임은 localStorage + 쿠키(1년) 두 군데에 저장 → 한쪽이 지워져도 같은 브라우저면 유지
+const nick = {
+  get(){ const v = store.get("nickname"); if (v) return v; const m = document.cookie.match(/(?:^|; )dh_nick=([^;]*)/); return m ? decodeURIComponent(m[1]) : ""; },
+  set(v){ store.set("nickname", v); try { document.cookie = `dh_nick=${encodeURIComponent(v)}; max-age=31536000; path=/; SameSite=Lax`; } catch {} }
+};
+try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
 
 /* ---------- 시간 표시 ---------- */
 const DOW = ["일","월","화","수","목","금","토"];
@@ -425,7 +432,12 @@ async function firebaseStore(cfg){
     await navigator.serviceWorker.ready;
     if (!messaging){
       messaging = msgMod.getMessaging(app);
-      msgMod.onMessage(messaging, p => { const n = p.notification || {}; toast([n.title, n.body].filter(Boolean).join(" · ")); });
+      msgMod.onMessage(messaging, p => {
+        // 앱이 열려 있을 땐 브라우저가 알림을 자동으로 안 띄우므로 직접 띄움
+        const n = p.notification || {}, d = p.data || {};
+        toast([n.title, n.body].filter(Boolean).join(" · "), 6000);
+        reg.showNotification(n.title || "덤불홀덤 모임", { body: n.body || "", icon: "icon-192.png", tag: `${d.kind || "msg"}-${d.mid || ""}-${Date.now()}`, data: { link: d.link || location.href } }).catch(() => {});
+      });
     }
     const token = await msgMod.getToken(messaging, { vapidKey: CFG.vapidKey, serviceWorkerRegistration: reg });
     await setDoc(doc(db, "pushTokens", user.uid), { token, updatedAt: serverTimestamp() });
@@ -439,6 +451,8 @@ async function firebaseStore(cfg){
     watchEntries(id, cb){ return onSnapshot(ecol(id), s => cb(s.docs.map(toE)), fail); },
     watchDraw(id, cb){ return onSnapshot(dref(id), s => cb(s.exists() ? s.data() : null), () => cb(null)); },
     async getEntries(id){ return (await getDocs(ecol(id))).docs.map(toE); },
+    async loadProfile(){ try { const s = await getDoc(doc(db, "profiles", auth.currentUser.uid)); return s.exists() ? (s.data().name || "") : ""; } catch { return ""; } },
+    saveProfile(name){ guarded(() => setDoc(doc(db, "profiles", auth.currentUser.uid), { name, updatedAt: serverTimestamp() })).catch(() => {}); },
     async createMeetup(m){
       const ref = doc(collection(db,"meetups"));
       await guarded(() => setDoc(ref, { title:m.title, location:m.location, memo:m.memo, capacity:m.capacity, minPlayers:m.minPlayers, hostName:m.hostName,
@@ -511,7 +525,7 @@ async function firebaseStore(cfg){
 }
 
 /* ---------- 상태 ---------- */
-const S = { api:null, view:"list", id:null, meetups:[], meetup:undefined, entries:[], name: store.get("nickname") || "", memoDraft:"", busy:false, confirm:null, unsub:[] };
+const S = { api:null, view:"list", id:null, meetups:[], meetup:undefined, entries:[], name: nick.get(), memoDraft:"", busy:false, confirm:null, unsub:[] };
 const isPast = m => Date.now() >= m.deadline;
 const ended = m => Date.now() > m.date + 12*3600e3;
 const LATE_MS = (CFG.lateRegMinutes || 64) * 60e3;
@@ -600,7 +614,7 @@ function renderNew(){
       <label class="f">모임 일시<input type="datetime-local" id="f-date" required value="${toLocalInput(d.getTime())}"></label>
       <label class="f">정시 마감<input type="datetime-local" id="f-deadline" required value="${toLocalInput(dl)}"><small>이때 최소 인원이 모이면 자리배치, 이후 모임 시작 ${CFG.lateRegMinutes || 64}분 뒤까지 레이트 레지(빈자리 배치)</small></label>
     </div>
-    <label class="f">장소<input type="text" id="f-loc" maxlength="40" placeholder="예: 연남동 ○○"></label>
+    <label class="f">장소${CFG.fixedLocation ? " <small>고정</small>" : ""}<input type="text" id="f-loc" maxlength="40" ${CFG.fixedLocation ? `value="${esc(CFG.fixedLocation)}" readonly style="background:var(--surface-2);color:var(--muted)"` : `placeholder="예: 연남동 ○○"`}></label>
     <div class="two">
       <label class="f">최소 인원<input type="number" id="f-min" min="2" max="36" value="${CFG.defaultMinPlayers || 6}" required inputmode="numeric"><small>모이면 성사 알림, 취소로 모자라면 미달 알림</small></label>
       <label class="f">정원<input type="number" id="f-cap" min="2" max="36" value="12" required inputmode="numeric"><small>${PER_TABLE}명 넘으면 테이블을 나눠 배치</small></label>
@@ -778,7 +792,7 @@ function askName(then){
     <button class="btn primary block" type="submit">저장</button>
     ${S.name ? `<button class="btn ghost block" type="button" data-act="nick-close">닫기</button>` : ""}</form></div>`;
   const f = $("#nickForm"); setTimeout(()=>$("#nick").focus(), 50);
-  f.onsubmit = e => { e.preventDefault(); const v = $("#nick").value.trim(); if (!v) return; S.name = v; store.set("nickname", v); $("#overlay").innerHTML = ""; render(); then && then(); };
+  f.onsubmit = e => { e.preventDefault(); const v = $("#nick").value.trim(); if (!v) return; S.name = v; nick.set(v); S.api && S.api.saveProfile && S.api.saveProfile(v); $("#overlay").innerHTML = ""; render(); then && then(); };
 }
 const needName = fn => S.name ? fn() : askName(fn);
 
@@ -844,7 +858,7 @@ document.addEventListener("submit", e => {
   const joinToo = $("#f-join").checked;
   if (!S.api.demo && S.api.pushSupported() && Notification.permission === "default") S.api.enablePush().catch(()=>{});
   needName(()=>run(async () => {
-    const id = await tag("모임 저장", S.api.createMeetup({ title: v("#f-title"), location: v("#f-loc"), memo: $("#f-memo").value.trim(), capacity, minPlayers, date, deadline, hostName: S.name }));
+    const id = await tag("모임 저장", S.api.createMeetup({ title: v("#f-title"), location: CFG.fixedLocation || v("#f-loc"), memo: $("#f-memo").value.trim(), capacity, minPlayers, date, deadline, hostName: S.name }));
     if (joinToo) await tag("모임장 참여 신청", S.api.join(id, S.name, ""));
     history.replaceState(null, "", "?m=" + encodeURIComponent(id)); route();
   }, "모임을 올렸어요"));
@@ -874,9 +888,13 @@ if (IS_KAKAO && !store.get("kakao-ext-tried")){ store.set("kakao-ext-tried", "1"
   catch (e){ console.error(e); $("#app").innerHTML = `<div class="empty">서버에 연결하지 못했어요.<br><small>${esc(e.message)}</small></div>`; return; }
   if (S.api.demo) $("#demo").hidden = false;
   if (IN_APP) $("#inapp").hidden = false;
+  // 저장된 닉네임이 없으면 서버에 저장해 둔 닉네임으로 복구 (같은 브라우저 로그인 유지 시)
+  if (!S.name && S.api.loadProfile){ const n = await S.api.loadProfile(); if (n){ S.name = n; nick.set(n); } }
+  else if (S.name && S.api.saveProfile && !store.get("profile-synced")){ S.api.saveProfile(S.name); store.set("profile-synced", "1"); }
   route();
   S.api.refreshPush();  // 이미 알림을 허용한 기기는 토큰을 최신으로 갱신
-  if (!S.name) askName();
+  // 카톡 안에서는 기본 브라우저로 넘어가므로 여기서 묻지 않음 (신청할 때 필요하면 그때 물어봄)
+  if (!S.name && !IS_KAKAO) askName();
 })();
 })();
 </script>
