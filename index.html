@@ -202,6 +202,10 @@ button.seat{background:none;border:0;padding:0;font:inherit;color:inherit}
 .drawlog .to{font-family:var(--f-mono);font-weight:600;background:var(--chip);color:#3a2a05;border-radius:8px;padding:2px 8px;font-size:13px}
 .drawhead{font-size:12.5px;color:var(--muted);margin:8px 2px 0}
 .form{display:grid;gap:14px}
+.memorow{display:flex;gap:10px;align-items:flex-end}
+.lrchk{display:flex;align-items:center;gap:6px;min-height:46px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-weight:700;font-size:14px;cursor:pointer;flex:none}
+.lrchk input{width:20px;height:20px;accent-color:var(--felt)}
+.lrchk:has(input:checked){border-color:var(--felt);background:var(--ok-bg);color:var(--ok)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media (max-width:420px){.two{grid-template-columns:1fr}}
 
@@ -228,7 +232,7 @@ button.seat{background:none;border:0;padding:0;font:inherit;color:inherit}
 "use strict";
 const CFG = window.APP_CONFIG;
 const PER_TABLE = CFG.seatsPerTable || 12;
-const APP_VERSION = "10.14-c";
+const APP_VERSION = "10.15-a";
 const UA = navigator.userAgent;
 const IS_IOS = /iPhone|iPad|iPod/.test(UA);
 const IN_APP = /KAKAOTALK|Instagram|FBAN|FBAV|NAVER\(inapp|Line\//i.test(UA);
@@ -259,22 +263,35 @@ function shuffle(arr){ const a = arr.slice(); for (let i=a.length-1;i>0;i--){ co
 function sortEntries(entries){ return entries.slice().sort((a,b)=>(a.createdAt??Infinity)-(b.createdAt??Infinity) || (a.uid<b.uid?-1:1)); }
 function splitEntries(m, entries){ const s = sortEntries(entries); return { confirmed: s.slice(0, m.capacity), waiting: s.slice(m.capacity) }; }
 /* 신청 순서대로 한 명씩 남은 자리 카드 중 하나를 무작위로 뽑는 방식. 뽑은 순서를 기록으로 남김 */
-function drawSeating(confirmed, by){
-  const n = confirmed.length, at = Date.now();
-  const t = Math.max(1, Math.ceil(n / PER_TABLE));
-  const cards = [], tables = [];
+const onTimeCount = entries => entries.filter(e => !e.lateReg).length;   // 성사 판정 인원 = 전체 − 레레
+function drawSeating(all, by){
+  // 정시 참여자만 자리 카드를 뽑음(딜러 포함). 레레 체크한 사람은 뒤에서 빈 1~11번 자리에 배치
+  const confirmed = all.filter(e => !e.lateReg);
+  const total = all.length, n = confirmed.length, at = Date.now();
+  const t = Math.max(1, Math.ceil(total / PER_TABLE));
+  const dealerCards = [], numCards = [], tables = [];
   for (let k=0;k<t;k++){
-    const size = Math.floor(n/t) + (k < n % t ? 1 : 0);
+    const size = Math.floor(total/t) + (k < total % t ? 1 : 0);
     tables.push({ table: k+1, seats: [] });
-    for (let s=0;s<size;s++) cards.push({ table: k+1, seat: s });   // 0 = 딜러 자리
+    dealerCards.push({ table: k+1, seat: 0 });                        // 0 = 딜러 자리
+    for (let s=1;s<size;s++) numCards.push({ table: k+1, seat: s });
   }
   const steps = confirmed.map((p, i) => {
-    const c = cards.splice(rand(cards.length), 1)[0];
+    // 남은 뽑기 횟수와 남은 딜러 카드 수가 같아지면 딜러 카드만 남겨 테이블마다 딜러가 꼭 생기게 함
+    const left = n - i, pool = left <= dealerCards.length ? dealerCards : dealerCards.concat(numCards);
+    const c = pool[rand(pool.length)];
+    const from = c.seat === 0 ? dealerCards : numCards; from.splice(from.indexOf(c), 1);
     tables[c.table-1].seats.push({ seat: c.seat, uid: p.uid, name: p.name });
     return { n: i+1, uid: p.uid, name: p.name, table: c.table, seat: c.seat };
   });
   tables.forEach(tb => tb.seats.sort((a,b)=>a.seat-b.seat));
-  return { seats: { assignedAt: at, tables: n ? tables : [] }, log: { drawnAt: at, byUid: by.uid, byName: by.name, byHost: !!by.host, multi: t > 1, steps } };
+  const res = { seats: { assignedAt: at, tables: total ? tables : [] }, log: { drawnAt: at, byUid: by.uid, byName: by.name, byHost: !!by.host, multi: t > 1, steps } };
+  if (all.length > n){                                                 // 레레 인원 자리 미리 잡기
+    const f = fillSeats({ capacity: Infinity, seats: res.seats }, all);
+    f.seats.tables.forEach(tb => tb.seats.forEach(x => { if (all.find(e => e.uid === x.uid && e.lateReg)){ x.lateReg = true; } }));
+    res.seats = f.seats;
+  }
+  return res;
 }
 const minOf = m => m.minPlayers || CFG.defaultMinPlayers || 6;
 const isFormed = m => (m.formed !== undefined && m.formed !== null) ? !!m.formed : !!m.formedAt;
@@ -355,7 +372,7 @@ function demoStore(){
   const on = f => { subs.add(f); setTimeout(f); return () => subs.delete(f); };
   const err = msg => Promise.reject(new Error(msg));
   const meName = () => S.name || "나";
-  function checkBreak(m, id){ if (isFormed(m) && Object.keys(db.entries[id]).length < minOf(m)){ m.formed = false; m.brokenAt = Date.now(); } }
+  function checkBreak(m, id){ if (isFormed(m) && onTimeCount(Object.values(db.entries[id])) < minOf(m)){ m.formed = false; m.brokenAt = Date.now(); } }
   function seat(id, by){ const m = db.meetups[id]; const r = drawSeating(splitEntries(m, Object.values(db.entries[id])).confirmed, by); m.seats = r.seats; db.draws[id] = r.log; save(); }
   return {
     demo: true, uid,
@@ -365,11 +382,11 @@ function demoStore(){
     watchDraw(id, cb){ return on(()=>cb(db.meetups[id]?.hostUid === uid ? (db.draws[id] || null) : null)); },
     async getEntries(id){ return Object.values(db.entries[id]||{}); },
     async createMeetup(m){ const id = "m"+Date.now().toString(36); db.meetups[id] = { ...m, id, hostUid: uid, seats: null, formedAt: null, createdAt: Date.now() }; db.entries[id] = {}; save(); return id; },
-    async join(id, name, memo){
+    async join(id, name, memo, lateReg){
       const m = db.meetups[id], late = Date.now() >= m.deadline;
       if (late && (!m.seats || lateClosed(m))) return err(m.seats ? "레이트 레지가 마감됐어요" : "레이트 레지를 받지 않는 모임이에요");
-      db.entries[id][uid] = { uid, name, memo, createdAt: Date.now(), ...(late ? { late: true } : {}) };
-      if (!isFormed(m) && Object.keys(db.entries[id]).length >= minOf(m)){ m.formed = true; m.formedAt = Date.now(); }
+      db.entries[id][uid] = { uid, name, memo, createdAt: Date.now(), ...(late ? { late: true } : {}), ...(!late && lateReg ? { lateReg: true } : {}) };
+      if (!isFormed(m) && onTimeCount(Object.values(db.entries[id])) >= minOf(m)){ m.formed = true; m.formedAt = Date.now(); }
       if (late){ const r = fillSeats(m, Object.values(db.entries[id])); if (r.changed) m.seats = r.seats; }
       save();
     },
@@ -382,7 +399,7 @@ function demoStore(){
     async closeNow(id){ db.meetups[id].deadline = Date.now(); save(); },
     async rankOp(id, op){ const m = db.meetups[id], out = applyRankOp(m, op); if (out) { m.results = { out, updatedAt: Date.now(), by: uid }; save(); } },
     async assignSeatsIfNeeded(id){ const m = db.meetups[id]; if (!m || m.seats || Date.now() < m.deadline) return;
-      if (Object.keys(db.entries[id]).length < minOf(m)) return;   // 최소 인원 미달 → 모임 불성사, 배치 안 함
+      if (onTimeCount(Object.values(db.entries[id])) < minOf(m)) return;   // 최소 인원 미달 → 모임 불성사, 배치 안 함
       seat(id, { uid, name: meName(), host: m.hostUid === uid }); },
     async reseat(id){ seat(id, { uid, name: meName(), host: true }); },
     async deleteMeetup(id){ delete db.meetups[id]; delete db.entries[id]; delete db.draws[id]; save(); },
@@ -402,7 +419,7 @@ async function firebaseStore(cfg){
   const ms = v => v instanceof Timestamp ? v.toMillis() : (v ?? null);
   const opt = { serverTimestamps: "estimate" };
   const toM = s => { const d = s.data(opt); return { ...d, id: s.id, date: ms(d.date), deadline: ms(d.deadline), createdAt: ms(d.createdAt) }; };
-  const toE = s => { const d = s.data(opt); return { uid: s.id, name: d.name, memo: d.memo || "", createdAt: ms(d.createdAt) }; };
+  const toE = s => { const d = s.data(opt); return { uid: s.id, name: d.name, memo: d.memo || "", createdAt: ms(d.createdAt), late: !!d.late, lateReg: !!d.lateReg }; };
   const mref = id => doc(db, "meetups", id);
   const ecol = id => collection(db, "meetups", id, "entries");
   const dref = id => doc(db, "meetups", id, "private", "draw");
@@ -461,11 +478,11 @@ async function firebaseStore(cfg){
         appUrl: location.origin + location.pathname, createdAt: serverTimestamp(), hostUid: auth.currentUser.uid }));
       return ref.id;
     },
-    async join(id, name, memo){
+    async join(id, name, memo, lateReg){
       const m = toM(await getDoc(mref(id)));
       const late = Date.now() >= m.deadline;
       if (late && (!m.seats || lateClosed(m))) throw new Error(m.seats ? "레이트 레지가 마감됐어요" : "레이트 레지를 받지 않는 모임이에요");
-      await guarded(() => setDoc(doc(ecol(id), auth.currentUser.uid), { name, memo, createdAt: serverTimestamp(), ...(late ? { late: true } : {}) }));
+      await guarded(() => setDoc(doc(ecol(id), auth.currentUser.uid), { name, memo, createdAt: serverTimestamp(), ...(late ? { late: true } : {}), ...(!late && lateReg ? { lateReg: true } : {}) }));
       if (late) await this.fillSeats(id);          // 레이트 레지: 빈자리에 바로 배치
     },
     async fillSeats(id){
@@ -496,7 +513,7 @@ async function firebaseStore(cfg){
       await runTransaction(db, async tx => {
         const s = await tx.get(mref(id)); if (!s.exists()) return;
         const m = toM(s); if (m.seats || Date.now() < m.deadline) return;
-        if (entries.length < minOf(m)) return;      // 최소 인원 미달 → 모임 불성사, 배치 안 함
+        if (onTimeCount(entries) < minOf(m)) return;      // 레레 제외 최소 인원 미달 → 모임 불성사, 배치 안 함
         const r = drawSeating(splitEntries(m, entries).confirmed, { uid: user.uid, name: S.name || "", host: m.hostUid === user.uid });
         tx.update(mref(id), { seats: r.seats });
         tx.set(dref(id), r.log);
@@ -548,7 +565,7 @@ function route(){
   const p = new URLSearchParams(location.search); const h = location.hash.replace(/^#/, "");
   const id = p.get("m") || (h.startsWith("m=") ? h.slice(2) : null);
   const view = h === "new" ? "new" : id ? "detail" : "list";
-  S.unsub.forEach(f=>f()); S.unsub = []; S.view = view; S.id = id; S.confirm = null; S.meetup = undefined; S.entries = []; S.memoDraft = ""; S.draw = null; S.showDraw = false; S.rankMode = false;
+  S.unsub.forEach(f=>f()); S.unsub = []; S.view = view; S.id = id; S.confirm = null; S.meetup = undefined; S.entries = []; S.memoDraft = ""; S.lateRegDraft = false; S.draw = null; S.showDraw = false; S.rankMode = false;
   if (view === "list") S.unsub.push(S.api.watchMeetups(ms => { S.meetups = ms; autoSeatAll(); render(); }));
   if (view === "detail"){
     let drawSub = null;
@@ -649,7 +666,7 @@ function renderSeating(m){
         return `<${tag} class="seat ${s.uid===me?"me":""} ${s.seat===0?"dl":""} ${isOut?"out":""}" style="left:${pos.get(s).x}%;top:${pos.get(s).y}%" ${tag==="button"?`data-act="bust" data-uid="${esc(s.uid)}" aria-label="${esc(s.name)} 탈락"`:""}><span class="c">${s.seat===0?"D":s.seat}</span><span class="l">${esc(s.name)}</span>${rk(s.uid)}</${tag}>`; }).join("")}
       </div>
       <div class="seatlist">${t.seats.map(s=>{ const r = R.rank.get(s.uid), isOut = r && r !== 1;
-        return `<div class="${s.uid===me?"me":""} ${isOut?"out":""}" ${ranking && !isOut ? `data-act="bust" data-uid="${esc(s.uid)}" role="button" tabindex="0" style="cursor:pointer"` : ""}><span class="num">${s.seat===0?"D":s.seat}</span><span>${s.seat===0?"<b>딜러</b> ":""}${esc(s.name)}${s.late?' <small class="muted">레이트</small>':""}</span>${r?`<span class="rkt">${r}위</span>`:""}</div>`; }).join("")}</div>
+        return `<div class="${s.uid===me?"me":""} ${isOut?"out":""}" ${ranking && !isOut ? `data-act="bust" data-uid="${esc(s.uid)}" role="button" tabindex="0" style="cursor:pointer"` : ""}><span class="num">${s.seat===0?"D":s.seat}</span><span>${s.seat===0?"<b>딜러</b> ":""}${esc(s.name)}${s.lateReg?' <small class="muted">레레</small>':s.late?' <small class="muted">레이트</small>':""}</span>${r?`<span class="rkt">${r}위</span>`:""}</div>`; }).join("")}</div>
     </div>`; }).join("")}</div>
     <p class="muted" style="font-size:12.5px;margin:8px 0 0">${fmtDate(m.seats.assignedAt)} 무작위 배치</p>
     ${renderRanking(m, R, host)}`;
@@ -694,12 +711,14 @@ function renderDetail(){
   let action;
   if (!past){
     action = joined
-      ? `<div class="status ${mineIdx>=0?"ok":"wait"}">${mineIdx>=0 ? `참여 확정 · ${mineIdx+1}번째 신청` : `대기 ${waitIdx+1}번 · 누가 취소하면 자동으로 확정돼요`}</div>
+      ? `<div class="status ${mineIdx>=0?"ok":"wait"}">${mineIdx>=0 ? `참여 확정 · ${mineIdx+1}번째 신청${confirmed[mineIdx].lateReg ? " · 레레" : ""}` : `대기 ${waitIdx+1}번 · 누가 취소하면 자동으로 확정돼요`}</div>
          <button class="btn danger block" data-act="cancel" ${S.busy?"disabled":""}>신청 취소</button>`
-      : `<label class="f">한 줄 메모 <small>선택 · 예: 30분 늦어요</small><input type="text" id="memo" maxlength="60" value="${esc(S.memoDraft)}"></label>
+      : `<div class="memorow"><label class="f" style="flex:1;min-width:0">한 줄 메모 <small>선택 · 예: 30분 늦어요</small><input type="text" id="memo" maxlength="60" value="${esc(S.memoDraft)}"></label>
+           <label class="lrchk" for="lateReg"><input type="checkbox" id="lateReg" ${S.lateRegDraft?"checked":""}><span>레레</span></label></div>
+         <p class="muted" style="margin:0;font-size:12.5px">시작 시간에 못 오고 레이트 레지로 들어오면 <b>레레</b>에 체크해 주세요. 성사 인원(최소 ${minOf(m)}명)에서 빠져요.</p>
          <button class="btn ${confirmed.length>=m.capacity?"":"primary"} block" data-act="join" ${S.busy?"disabled":""}>${confirmed.length>=m.capacity ? "대기자로 신청" : `${esc(S.name||"")} 참여 신청`}</button>`;
   } else {
-    const short = !m.seats && S.entries.length < minOf(m);   // 정시 마감 때 최소 인원 미달 → 불성사
+    const short = !m.seats && onTimeCount(S.entries) < minOf(m);   // 정시 마감 때 최소 인원 미달 → 불성사
     const lateOpen = !!m.seats && !lateClosed(m);
     if (mySeat) action = `<div class="status ok">내 자리: ${mySeat.multi?`${mySeat.t}번 테이블 `:""}${mySeat.s===0 ? "<b>딜러</b> 🎴" : `<span class="num">${mySeat.s}</span>번`}</div>`;
     else if (joined) action = `<div class="status wait">${m.seats ? "자리 대기 · 빈자리가 생기면 자동으로 앉혀드려요" : short ? "최소 인원 미달로 모임이 열리지 않아요" : "자리배치 중…"}</div>`;
@@ -715,13 +734,15 @@ function renderDetail(){
   }
 
   // 성사 상태
-  const min = minOf(m), total = S.entries.length, need = Math.max(0, min - total);
+  const lrN = S.entries.filter(e => e.lateReg).length;
+  const min = minOf(m), total = onTimeCount(S.entries), need = Math.max(0, min - total);
+  const lrNote = lrN ? ` · 레레 ${lrN}명 제외` : "";
   const chips = Array.from({length:min}, (_, i) => `<i class="${i < total ? "on" : ""}"></i>`).join("");
   const formedBox = (past && !m.seats && need > 0)
-    ? `<div class="formed no"><span>정시 마감 때 ${total}명 · 최소 ${min}명 미달로 불성사</span><span class="chips" aria-hidden="true">${chips}</span></div>`
+    ? `<div class="formed no"><span>정시 마감 때 ${total}명${lrNote} · 최소 ${min}명 미달로 불성사</span><span class="chips" aria-hidden="true">${chips}</span></div>`
     : need === 0
-    ? `<div class="formed yes"><span>모임 성사! 최소 ${min}명 넘었어요</span><span class="chips" aria-hidden="true">${chips}</span></div>`
-    : `<div class="formed no"><span>성사까지 <b class="num">${need}</b>명 더 필요 (최소 ${min}명)</span><span class="chips" aria-hidden="true">${chips}</span></div>`;
+    ? `<div class="formed yes"><span>모임 성사! 정시 ${total}명${lrNote}</span><span class="chips" aria-hidden="true">${chips}</span></div>`
+    : `<div class="formed no"><span>성사까지 <b class="num">${need}</b>명 더 필요 (최소 ${min}명${lrNote})</span><span class="chips" aria-hidden="true">${chips}</span></div>`;
 
   // 알림 켜기
   let push = "";
@@ -746,7 +767,7 @@ function renderDetail(){
           `<li><span class="k">L</span><span class="who">${esc(x.name)}<small>레이트 레지 · ${x.at ? fmtDate(x.at) : ""}</small></span><span class="to">${d.multi ? `${x.table}T-` : ""}${seatName(x.seat)}</span></li>`).join("")}</ol>` : ""}`;
   }
 
-  const li = (e, i) => `<li><span class="ord">${i+1}</span><span class="nm">${esc(e.name)}</span>${e.late?`<span class="you" style="background:var(--surface-2);color:var(--muted)">레이트</span>`:""}${e.uid===me?`<span class="you">나</span>`:""}<span class="memo">${esc(e.memo)}</span>
+  const li = (e, i) => `<li><span class="ord">${i+1}</span><span class="nm">${esc(e.name)}</span>${e.late?`<span class="you" style="background:var(--surface-2);color:var(--muted)">레이트</span>`:""}${e.lateReg?`<span class="you" style="background:var(--warn-bg);color:var(--warn)">레레</span>`:""}${e.uid===me?`<span class="you">나</span>`:""}<span class="memo">${esc(e.memo)}</span>
     ${host && e.uid!==me ? `<button class="btn sm ghost x" data-act="kick" data-uid="${esc(e.uid)}" aria-label="${esc(e.name)} 신청 취소">빼기</button>` : ""}</li>`;
 
   let conf = "";
@@ -832,7 +853,8 @@ document.addEventListener("click", e => {
   else if (a === "join"){
     // 신청 버튼을 누르는 순간(사용자 동작 안에서) 알림 권한도 함께 요청
     if (!S.api.demo && S.api.pushSupported() && Notification.permission === "default") S.api.enablePush().then(render, ()=>render());
-    needName(()=>run(()=>tag("참여 신청", S.api.join(id, S.name, (S.memoDraft||"").trim())).then(()=>{ S.memoDraft=""; }), "신청 완료!"));
+    const lr = !!($("#lateReg") && $("#lateReg").checked);
+    needName(()=>run(()=>tag("참여 신청", S.api.join(id, S.name, (S.memoDraft||"").trim(), lr)).then(()=>{ S.memoDraft=""; S.lateRegDraft=false; }), lr ? "레레로 신청했어요" : "신청 완료!"));
   }
   else if (a === "cancel") run(()=>S.api.cancel(id), "신청을 취소했어요");
   else if (a === "share"){
@@ -848,6 +870,7 @@ document.addEventListener("click", e => {
   else if (a === "confirm-yes"){ const c = S.confirm; S.confirm = null; run(c.fn, c.ok); }
 });
 document.addEventListener("input", e => { if (e.target.id === "memo") S.memoDraft = e.target.value; });
+document.addEventListener("change", e => { if (e.target.id === "lateReg") S.lateRegDraft = e.target.checked; });
 document.addEventListener("submit", e => {
   if (e.target.id !== "newForm") return; e.preventDefault();
   const v = id => $(id).value.trim(); const err = $("#f-err");
